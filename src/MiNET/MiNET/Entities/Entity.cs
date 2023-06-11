@@ -35,6 +35,8 @@ using MiNET.Blocks;
 using MiNET.Items;
 using MiNET.Net;
 using MiNET.Utils;
+using MiNET.Utils.Metadata;
+using MiNET.Utils.Vectors;
 using MiNET.Worlds;
 
 namespace MiNET.Entities
@@ -137,6 +139,7 @@ namespace MiNET.Entities
 			RiderRotationLocked = 57,
 			RiderMaxRotation = 58,
 			RiderMinRotation = 59,
+			AlwaysShowNameTag = 81,
 
 			EntityFlags2 = 91, // same treatment as 0 flags, perhaps
 
@@ -160,6 +163,7 @@ namespace MiNET.Entities
 			metadata[(int) MetadataFlags.RiderRotationLocked] = new MetadataByte(RiderRotationLocked);
 			metadata[(int) MetadataFlags.RiderMaxRotation] = new MetadataFloat(RiderMaxRotation);
 			metadata[(int) MetadataFlags.RiderMinRotation] = new MetadataFloat(RiderMinRotation);
+			metadata[(int) MetadataFlags.AlwaysShowNameTag] = new MetadataByte(IsAlwaysShowName);
 			return metadata;
 		}
 

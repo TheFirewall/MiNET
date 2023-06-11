@@ -30,6 +30,8 @@ using System.Threading;
 using log4net;
 using MiNET.Client;
 using MiNET.Utils;
+using MiNET.Utils.IO;
+using MiNET.Utils.Vectors;
 
 #pragma warning disable 1591
 
@@ -74,6 +76,7 @@ namespace MiNET.ServiceKiller
 				var client = new MiNetClient(EndPoint, Name, _threadPool);
 				client.ChunkRadius = ChunkRadius;
 				client.IsEmulator = true;
+				client.UseBlobCache = true;
 				client.ClientId = ClientId;
 
 				client.StartClient();

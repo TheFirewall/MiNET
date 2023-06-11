@@ -67,6 +67,11 @@ namespace MiNET
 						ProcessCraftNotImplementedDeprecatedAction(craftNotImplementedDeprecatedAction);
 						break;
 					}
+					case CraftRecipeOptionalAction craftRecipeOptionalAction:
+					{
+						ProcessCraftRecipeOptionalAction(craftRecipeOptionalAction);
+						break;
+					}
 					case CraftResultDeprecatedAction craftResultDeprecatedAction:
 					{
 						ProcessCraftResultDeprecatedAction(craftResultDeprecatedAction);
@@ -445,13 +450,17 @@ namespace MiNET
 
 		protected virtual void ProcessCraftCreativeAction(CraftCreativeAction action)
 		{
-			Item creativeItem = InventoryUtils.CreativeInventoryItems.FirstOrDefault(i => i.UniqueId == (int) action.CreativeItemNetworkId);
+			Item creativeItem = InventoryUtils.CreativeInventoryItems.FirstOrDefault(i => i.NetworkId == (int) action.CreativeItemNetworkId);
 			if (creativeItem == null) throw new Exception($"Failed to find inventory item with unique id: {action.CreativeItemNetworkId}");
 			creativeItem = ItemFactory.GetItem(creativeItem.Id, creativeItem.Metadata);
 			creativeItem.Count = (byte) creativeItem.MaxStackSize;
 			creativeItem.UniqueId = Environment.TickCount & Int32.MaxValue;
 			Log.Debug($"Creating {creativeItem}");
 			_player.Inventory.UiInventory.Slots[50] = creativeItem;
+		}
+
+		protected virtual void ProcessCraftRecipeOptionalAction(CraftRecipeOptionalAction action)
+		{
 		}
 
 		private Item GetContainerItem(int containerId, int slot)

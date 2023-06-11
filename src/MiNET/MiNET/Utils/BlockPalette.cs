@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using fNbt;
 using Microsoft.VisualBasic.CompilerServices;
 using Newtonsoft.Json;
 
@@ -108,11 +109,14 @@ namespace MiNET.Utils
 		public string Name { get; set; }
 		public int RuntimeId { get; set; }
 		public List<IBlockState> States { get; set; } = new List<IBlockState>();
+
+		[JsonIgnore]
+		public byte[] StatesCacheNbt { get; set; }
 		public ItemPickInstance ItemInstance { get; set; }
 
 		protected bool Equals(BlockStateContainer other)
 		{
-			bool result = Id == other.Id && Name == other.Name;
+			bool result = /*Id == other.Id && */Name == other.Name;
 			if (!result) return false;
 
 			var thisStates = new HashSet<IBlockState>(States);

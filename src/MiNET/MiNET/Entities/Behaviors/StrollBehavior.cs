@@ -27,6 +27,7 @@ using System.Numerics;
 using log4net;
 using MiNET.Blocks;
 using MiNET.Utils;
+using MiNET.Utils.Vectors;
 using MiNET.Worlds;
 
 namespace MiNET.Entities.Behaviors
@@ -136,10 +137,10 @@ namespace MiNET.Entities.Behaviors
 				{
 					//Log.Debug($"Block ahead: {block}, turning");
 					int rot = level.Random.Next(2) == 0 ? level.Random.Next(45, 180) : level.Random.Next(-180, -45);
-					_entity.Direction += rot;
-					_entity.Direction = Mob.ClampDegrees(_entity.Direction);
-					_entity.KnownPosition.HeadYaw = (float) _entity.Direction;
-					_entity.KnownPosition.Yaw = (float) _entity.Direction;
+					_entity.EntityDirection += rot;
+					_entity.EntityDirection = Mob.ClampDegrees(_entity.EntityDirection);
+					_entity.KnownPosition.HeadYaw = (float) _entity.EntityDirection;
+					_entity.KnownPosition.Yaw = (float) _entity.EntityDirection;
 					_entity.Velocity *= new Vector3(0, 1, 0);
 				}
 			}

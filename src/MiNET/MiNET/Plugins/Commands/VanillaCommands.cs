@@ -37,6 +37,7 @@ using MiNET.Items;
 using MiNET.Net;
 using MiNET.Plugins.Attributes;
 using MiNET.Utils;
+using MiNET.Utils.Vectors;
 using MiNET.Worlds;
 
 namespace MiNET.Plugins.Commands
@@ -127,7 +128,7 @@ namespace MiNET.Plugins.Commands
 			{
 				petType = (EntityType) Enum.Parse(typeof(EntityType), entityType.Value, true);
 			}
-			catch (ArgumentException e)
+			catch (ArgumentException)
 			{
 				return;
 			}

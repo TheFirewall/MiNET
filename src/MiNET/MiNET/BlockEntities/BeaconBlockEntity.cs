@@ -29,6 +29,7 @@ using fNbt;
 using log4net;
 using MiNET.Effects;
 using MiNET.Utils;
+using MiNET.Utils.Vectors;
 using MiNET.Worlds;
 
 namespace MiNET.BlockEntities
@@ -69,8 +70,17 @@ namespace MiNET.BlockEntities
 		public override void SetCompound(NbtCompound compound)
 		{
 			Compound = compound;
-			Primary = Compound["primary"].IntValue;
-			Secondary = Compound["secondary"].IntValue;
+
+			if (compound.TryGet("primary", out NbtInt primary))
+			{
+				Primary = primary.Value;
+			}
+			
+			if (compound.TryGet("secondary", out NbtInt secondary))
+			{
+				Secondary = secondary.Value;
+			}
+			
 			_nextUpdate = 0;
 		}
 

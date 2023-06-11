@@ -35,6 +35,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using log4net;
 using MiNET.Utils;
+using MiNET.Utils.IO;
 
 namespace MiNET.Net.RakNet
 {
@@ -42,16 +43,15 @@ namespace MiNET.Net.RakNet
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(RakConnection));
 
-		private UdpClient _listener;
-		private IPEndPoint _endpoint;
-		private DedicatedThreadPool _receiveThreadPool;
+		private          UdpClient           _listener;
+		private readonly IPEndPoint          _endpoint;
+		private readonly DedicatedThreadPool _receiveThreadPool;
 		private Thread _receiveThread;
-		private HighPrecisionTimer _tickerHighPrecisionTimer;
+		private          HighPrecisionTimer                           _tickerHighPrecisionTimer;
 		private readonly ConcurrentDictionary<IPEndPoint, RakSession> _rakSessions = new ConcurrentDictionary<IPEndPoint, RakSession>();
-		private readonly GreyListManager _greyListManager;
-		private readonly MotdProvider _motdProvider;
-		public readonly RakOfflineHandler _rakOfflineHandler;
-		public ConnectionInfo ConnectionInfo { get; }
+		private readonly GreyListManager                              _greyListManager;
+		public readonly  RakOfflineHandler                            _rakOfflineHandler;
+		public           ConnectionInfo                               ConnectionInfo { get; }
 
 		public bool FoundServer => _rakOfflineHandler.HaveServer;
 
@@ -77,13 +77,12 @@ namespace MiNET.Net.RakNet
 			_endpoint = endpoint ?? new IPEndPoint(IPAddress.Any, 0);
 
 			_greyListManager = greyListManager;
-			_motdProvider = motdProvider;
 
 			_receiveThreadPool = threadPool ?? new DedicatedThreadPool(new DedicatedThreadPoolSettings(100, "Datagram_Rcv_Thread"));
 
 			ConnectionInfo = new ConnectionInfo(_rakSessions);
 
-			_rakOfflineHandler = new RakOfflineHandler(this, this, _greyListManager, _motdProvider, ConnectionInfo);
+			_rakOfflineHandler = new RakOfflineHandler(this, this, _greyListManager, motdProvider, ConnectionInfo);
 		}
 
 		public void Start()
@@ -92,6 +91,7 @@ namespace MiNET.Net.RakNet
 
 			Log.Debug($"Creating listener for packets on {_endpoint}");
 			_listener = CreateListener(_endpoint);
+			
 			_receiveThread = new Thread(ReceiveDatagram) {IsBackground = true};
 			_receiveThread.Start(_listener);
 
@@ -197,10 +197,14 @@ namespace MiNET.Net.RakNet
 		{
 			var listener = new UdpClient();
 
-			//_listener.Client.ReceiveBufferSize = 1600*40000;
-			listener.Client.ReceiveBufferSize = int.MaxValue;
-			//_listener.Client.SendBufferSize = 1600*40000;
-			listener.Client.SendBufferSize = int.MaxValue;
+			if (Environment.OSVersion.Platform != PlatformID.MacOSX)
+			{
+				//_listener.Client.ReceiveBufferSize = 1600*40000;
+				listener.Client.ReceiveBufferSize = int.MaxValue;
+				//_listener.Client.SendBufferSize = 1600*40000;
+				listener.Client.SendBufferSize = int.MaxValue;
+			}
+
 			listener.DontFragment = false;
 			listener.EnableBroadcast = true;
 
@@ -252,7 +256,7 @@ namespace MiNET.Net.RakNet
 		}
 
 
-		private void ReceiveDatagram(object state)
+		private async void ReceiveDatagram(object state)
 		{
 			var listener = (UdpClient) state;
 
@@ -269,11 +273,10 @@ namespace MiNET.Net.RakNet
 				IPEndPoint senderEndpoint = null;
 				try
 				{
-					ReadOnlyMemory<byte> receiveBytes = listener.Receive(ref senderEndpoint);
-					//UdpReceiveResult result = listener.ReceiveAsync().Result;
-					//senderEndpoint = result.RemoteEndPoint;
-					//byte[] receiveBytes = result.Buffer;
-
+					var received     = await listener.ReceiveAsync();
+					var receiveBytes = received.Buffer;
+					senderEndpoint = received.RemoteEndPoint;
+					
 					Interlocked.Increment(ref ConnectionInfo.NumberOfPacketsInPerSecond);
 					Interlocked.Add(ref ConnectionInfo.TotalPacketSizeInPerSecond, receiveBytes.Length);
 
@@ -303,7 +306,7 @@ namespace MiNET.Net.RakNet
 						continue;
 					}
 				}
-				catch (ObjectDisposedException e)
+				catch (ObjectDisposedException)
 				{
 					return;
 				}
@@ -770,10 +773,10 @@ namespace MiNET.Net.RakNet
 				Interlocked.Increment(ref ConnectionInfo.NumberOfPacketsOutPerSecond);
 				Interlocked.Add(ref ConnectionInfo.TotalPacketSizeOutPerSecond, data.Length);
 			}
-			catch (ObjectDisposedException e)
+			catch (ObjectDisposedException)
 			{
 			}
-			catch (Exception e)
+			catch (Exception)
 			{
 				//if (_listener == null || _listener.Client != null) Log.Error(string.Format("Send data lenght: {0}", data.Length), e);
 			}

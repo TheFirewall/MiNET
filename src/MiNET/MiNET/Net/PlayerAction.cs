@@ -41,7 +41,7 @@ namespace MiNET.Net
 		StopSprint = 10,
 		StartSneak = 11,
 		StopSneak = 12,
-		DimensionChange = 13,
+		CreativeDestroy = 13,
 		DimensionChangeAck = 14,
 		StartGlide = 15,
 		StopGlide = 16,
@@ -53,6 +53,8 @@ namespace MiNET.Net
 		StopSwimming = 22,
 		StartSpinAttack = 23,
 		StopSpinAttack = 24,
-		InteractBlock = 25
+		InteractBlock = 25,
+		PredictDestroyBlock = 26,
+		ContinueDestroyBlock = 27
 	}
 }

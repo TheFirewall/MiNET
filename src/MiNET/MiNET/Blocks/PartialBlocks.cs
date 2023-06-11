@@ -2031,25 +2031,31 @@ namespace MiNET.Blocks
     {
         public override string Name => "minecraft:chain";
 
+		[StateEnum("z", "y", "x")]
+		public string PillarAxis { get; set; } = "y";
 
-        public override void SetState(List<IBlockState> states)
-        {
-            foreach (var state in states)
-            {
-                switch(state)
-                {
-                } // switch
-            } // foreach
-        } // method
+		public override void SetState(List<IBlockState> states)
+		{
+			foreach (var state in states)
+			{
+				switch (state)
+				{
+					case BlockStateString s when s.Name == "pillar_axis":
+						PillarAxis = s.Value;
+						break;
+				} // switch
+			} // foreach
+		} // method
 
-        public override BlockStateContainer GetState()
-        {
-            var record = new BlockStateContainer();
-            record.Name = "minecraft:chain";
-            record.Id = 541;
-            return record;
-        } // method
-    } // class
+		public override BlockStateContainer GetState()
+		{
+			var record = new BlockStateContainer();
+			record.Name = "minecraft:chain";
+			record.Id = 541;
+			record.States.Add(new BlockStateString { Name = "pillar_axis", Value = PillarAxis });
+			return record;
+		} // method
+	} // class
 
     public partial class ChainCommandBlock // 189 typeof=ChainCommandBlock
     {
@@ -3460,9 +3466,9 @@ namespace MiNET.Blocks
     {
         public override string Name => "minecraft:crimson_trapdoor";
 
-        [StateRange(0, 3)] public int Direction { get; set; } = 0;
-        [StateBit] public bool OpenBit { get; set; } = false;
-        [StateBit] public bool UpsideDownBit { get; set; } = false;
+		[StateRange(0, 3)] public override int Direction { get; set; } = 0;
+		[StateBit] public override bool OpenBit { get; set; } = false;
+		[StateBit] public override bool UpsideDownBit { get; set; } = false;
 
         public override void SetState(List<IBlockState> states)
         {
@@ -15526,9 +15532,9 @@ namespace MiNET.Blocks
     {
         public override string Name => "minecraft:warped_trapdoor";
 
-        [StateRange(0, 3)] public int Direction { get; set; } = 0;
-        [StateBit] public bool OpenBit { get; set; } = false;
-        [StateBit] public bool UpsideDownBit { get; set; } = false;
+		[StateRange(0, 3)] public override int Direction { get; set; } = 0;
+		[StateBit] public override bool OpenBit { get; set; } = false;
+		[StateBit] public override bool UpsideDownBit { get; set; } = false;
 
         public override void SetState(List<IBlockState> states)
         {
@@ -16321,8 +16327,6 @@ namespace MiNET.Blocks
     public partial class WarpedPlanks : Block { public WarpedPlanks() : base(498) { IsGenerated = true; } }
     public partial class CrimsonDoor : Block { public CrimsonDoor() : base(499) { IsGenerated = true; } }
     public partial class WarpedDoor : Block { public WarpedDoor() : base(500) { IsGenerated = true; } }
-    public partial class CrimsonTrapdoor : Block { public CrimsonTrapdoor() : base(501) { IsGenerated = true; } }
-    public partial class WarpedTrapdoor : Block { public WarpedTrapdoor() : base(502) { IsGenerated = true; } }
     public partial class CrimsonFence : Block { public CrimsonFence() : base(511) { IsGenerated = true; } }
     public partial class WarpedFence : Block { public WarpedFence() : base(512) { IsGenerated = true; } }
     public partial class CrimsonFenceGate : Block { public CrimsonFenceGate() : base(513) { IsGenerated = true; } }

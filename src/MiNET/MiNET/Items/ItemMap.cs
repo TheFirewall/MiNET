@@ -26,6 +26,7 @@
 using System.Numerics;
 using fNbt;
 using MiNET.Utils;
+using MiNET.Utils.Vectors;
 using MiNET.Worlds;
 
 namespace MiNET.Items
@@ -43,7 +44,7 @@ namespace MiNET.Items
 			set { ExtraData = new NbtCompound("tag") {new NbtLong("map_uuid", value)}; }
 		}
 
-		public ItemMap(long mapId = 0, byte count = 1) : base("minecraft:map", 358, 0, count)
+		public ItemMap(long mapId = 0, byte count = 1) : base("minecraft:filled_map", 358, 0, count)
 		{
 			MapId = mapId;
 			MaxStackSize = 1;

@@ -35,6 +35,7 @@ using MiNET.Items;
 using MiNET.Net;
 using MiNET.Utils;
 using MiNET.Utils.Skins;
+using MiNET.Utils.Vectors;
 using MiNET.Worlds;
 
 namespace MiNET.Entities
@@ -52,7 +53,7 @@ namespace MiNET.Entities
 		private IBehavior _currentBehavior = null;
 		public MobController Controller { get; private set; }
 
-		public double Direction { get; set; }
+		public double EntityDirection { get; set; }
 		public virtual double Speed { get; set; } = 0.25f;
 
 		public bool IsRidden { get; set; }
@@ -104,11 +105,11 @@ namespace MiNET.Entities
 
 		public Vector3 GetHorizDir()
 		{
-			Direction = ClampDegrees(Direction);
+			EntityDirection = ClampDegrees(EntityDirection);
 			Vector3 vector = new Vector3();
 
 			double pitch = 0;
-			double yaw = Direction.ToRadians();
+			double yaw = EntityDirection.ToRadians();
 			vector.X = (float) (-Math.Sin(yaw) * Math.Cos(pitch));
 			vector.Y = (float) -Math.Sin(pitch);
 			vector.Z = (float) (Math.Cos(yaw) * Math.Cos(pitch));
@@ -509,7 +510,7 @@ namespace MiNET.Entities
 						{
 							new Bone()
 							{
-								Name = BoneName.Body,
+								Name = BoneName.Body.ToString(),
 								Pivot = new float[3],
 								Cubes = new List<Cube>()
 								{

@@ -31,7 +31,9 @@ using MiNET.Items;
 using MiNET.Net;
 using MiNET.Net.RakNet;
 using MiNET.Utils;
+using MiNET.Utils.Metadata;
 using MiNET.Utils.Skins;
+using MiNET.Utils.Vectors;
 using MiNET.Worlds;
 
 namespace MiNET.Entities
@@ -145,7 +147,7 @@ namespace MiNET.Entities
 				message.headYaw = KnownPosition.HeadYaw;
 				message.pitch = KnownPosition.Pitch;
 				message.metadata = GetMetadata();
-				message.userId = -1;
+			//	message.userId = -1;
 				Level.RelayBroadcast(players, message);
 			}
 

@@ -40,6 +40,7 @@ using MiNET.Blocks;
 using MiNET.Items;
 using MiNET.Net;
 using MiNET.Utils;
+using MiNET.Utils.Vectors;
 
 namespace MiNET.Worlds
 {
@@ -229,7 +230,7 @@ namespace MiNET.Worlds
 			{
 				if (_isInitialized) return;
 
-				BasePath = BasePath ?? Config.GetProperty("PCWorldFolder", "World").Trim();
+				BasePath ??= Config.GetProperty("PCWorldFolder", "World").Trim();
 
 				NbtFile file = new NbtFile();
 				var levelFileName = Path.Combine(BasePath, "level.dat");
@@ -627,7 +628,7 @@ namespace MiNET.Worlds
 			byte[] blockLight = sectionTag["BlockLight"].ByteArrayValue;
 			byte[] skyLight = sectionTag["SkyLight"].ByteArrayValue;
 
-			var subChunk = chunkColumn[sectionIndex];
+			var subChunk = chunkColumn[4 + sectionIndex]; //Offset by 4 because of 1.18 world update.
 
 			for (int x = 0; x < 16; x++)
 			{
@@ -639,7 +640,9 @@ namespace MiNET.Worlds
 
 						int anvilIndex = (y << 8) + (z << 4) + x;
 						int blockId = blocks[anvilIndex] + (Nibble4(adddata, anvilIndex) << 8);
-
+						
+						if (blockId == 0) continue;
+						
 						// Anvil to PE friendly converstion
 
 						Func<int, byte, byte> dataConverter = (i, b) => b; // Default no-op converter
@@ -763,7 +766,8 @@ namespace MiNET.Worlds
 		public void SaveLevelInfo(LevelInfo level)
 		{
 			if (Dimension != Dimension.Overworld) return;
-
+			
+			level.LastPlayed = DateTimeOffset.Now.ToUnixTimeMilliseconds();
 			var leveldat = Path.Combine(BasePath, "level.dat");
 
 			if (!Directory.Exists(BasePath))
@@ -772,7 +776,7 @@ namespace MiNET.Worlds
 				return; // What if this is changed? Need a dirty flag on this
 
 			if (LevelInfo.SpawnY <= 0) LevelInfo.SpawnY = 256;
-
+			
 			NbtFile file = new NbtFile();
 			NbtTag dataTag = new NbtCompound("Data");
 			NbtCompound rootTag = (NbtCompound) file.RootTag;
@@ -790,7 +794,7 @@ namespace MiNET.Worlds
 			{
 				lock (_chunkCache)
 				{
-					SaveLevelInfo(new LevelInfo());
+					if (Dimension == Dimension.Overworld) SaveLevelInfo(LevelInfo);
 
 					var regions = new Dictionary<Tuple<int, int>, List<ChunkColumn>>();
 					foreach (var chunkColumn in _chunkCache.OrderBy(pair => pair.Key.X >> 5).ThenBy(pair => pair.Key.Z >> 5))

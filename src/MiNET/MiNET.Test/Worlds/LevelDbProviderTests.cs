@@ -26,6 +26,7 @@
 using System.IO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using MiNET.Utils;
+using MiNET.Utils.Vectors;
 
 namespace MiNET.Worlds.Tests
 {
@@ -35,7 +36,7 @@ namespace MiNET.Worlds.Tests
 		[TestMethod()]
 		public void RoundtripTest()
 		{
-			var provider = new LevelDbProvider(null);
+			var provider = new LevelDbProvider();
 			var flatGenerator = new SuperflatGenerator(Dimension.Overworld);
 			flatGenerator.Initialize(null);
 			SubChunk chunk = flatGenerator.GenerateChunkColumn(new ChunkCoordinates())[0];

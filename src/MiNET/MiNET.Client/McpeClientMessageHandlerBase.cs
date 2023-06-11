@@ -32,6 +32,8 @@ using Jose;
 using log4net;
 using MiNET.Net;
 using MiNET.Utils;
+using MiNET.Utils.Cryptography;
+using MiNET.Utils.Vectors;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Security;
 
@@ -112,13 +114,13 @@ namespace MiNET.Client
 			//response.responseStatus = 3;
 			//SendPackage(response);
 
-			if (message.resourcepackinfos.Count != 0)
+			if (message.behahaviorpackinfos.Count != 0)
 			{
 				var resourcePackIds = new ResourcePackIds();
 
-				foreach (ResourcePackInfo packInfo in message.resourcepackinfos)
+				foreach (ResourcePackInfo packInfo in message.behahaviorpackinfos)
 				{
-					resourcePackIds.Add(packInfo.PackIdVersion.Id);
+					resourcePackIds.Add(packInfo.UUID);
 				}
 
 				var response = new McpeResourcePackClientResponse();
@@ -171,7 +173,7 @@ namespace MiNET.Client
 			client.BlockPalette = blockPalette;
 			client.LevelInfo.LevelName = message.worldName;
 			client.LevelInfo.Version = 19133;
-			client.LevelInfo.GameType = message.gamemode;
+			client.LevelInfo.GameType = message.levelSettings.gamemode;
 
 			var packet = McpeRequestChunkRadius.CreateObject();
 			client.ChunkRadius = 5;
@@ -684,6 +686,48 @@ namespace MiNET.Client
 
 		public virtual void HandleMcpeItemStackResponse(McpeItemStackResponse message)
 		{
+		}
+
+		/// <inheritdoc />
+		public virtual void HandleMcpeItemComponent(McpeItemComponent message)
+		{
+			
+		}
+
+		/// <inheritdoc />
+		public virtual void HandleMcpeFilterTextPacket(McpeFilterTextPacket message)
+		{
+			
+		}
+
+		/// <inheritdoc />
+		public void HandleMcpeUpdateSubChunkBlocksPacket(McpeUpdateSubChunkBlocksPacket message)
+		{
+			
+		}
+
+		/// <inheritdoc />
+		public void HandleMcpeSubChunkPacket(McpeSubChunkPacket message)
+		{
+			
+		}
+
+		/// <inheritdoc />
+		public void HandleMcpeDimensionData(McpeDimensionData message)
+		{
+			
+		}
+
+		/// <inheritdoc />
+		public void HandleMcpeUpdateAbilities(McpeUpdateAbilities message)
+		{
+			
+		}
+
+		/// <inheritdoc />
+		public void HandleMcpeUpdateAdventureSettings(McpeUpdateAdventureSettings message)
+		{
+			
 		}
 
 		public virtual void HandleMcpeAlexEntityAnimation(McpeAlexEntityAnimation message)

@@ -185,10 +185,8 @@ namespace MiNET
 			{
 				case AnvilWorldProvider anvilWorldProvider:
 					return GetDimensionForAnvilProvider(level, dimension, anvilWorldProvider);
-					break;
 				case LevelDbProvider levelDbProvider:
 					return GetDimensionForLevelDbProvider(level, dimension, levelDbProvider);
-					break;
 			}
 
 			//if (Config.GetProperty("CalculateLights", false))
@@ -295,6 +293,23 @@ namespace MiNET
 
 			return newLevel;
 		}
+		
+		public void Close()
+		{
+			var levels = Levels;
+			Levels.Clear();
+			foreach (Level level in levels)
+			{
+				try
+				{
+					level.Close();
+				}
+				catch (Exception e)
+				{
+					Log.Warn($"Error while stopping server", e);
+				}
+			}
+		}
 	}
 
 	public class SpreadLevelManager : LevelManager
@@ -352,13 +367,6 @@ namespace MiNET
 			OnLevelCreated(new LevelCancelEventArgs(null, level));
 
 			return level;
-		}
-
-		public event EventHandler<LevelCancelEventArgs> LevelCreated;
-
-		protected virtual void OnLevelCreated(LevelCancelEventArgs e)
-		{
-			LevelCreated?.Invoke(this, e);
 		}
 	}
 }

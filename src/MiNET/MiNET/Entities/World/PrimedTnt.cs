@@ -27,6 +27,8 @@ using System;
 using System.Numerics;
 using MiNET.Net;
 using MiNET.Utils;
+using MiNET.Utils.Metadata;
+using MiNET.Utils.Vectors;
 using MiNET.Worlds;
 
 namespace MiNET.Entities.World
@@ -35,7 +37,6 @@ namespace MiNET.Entities.World
 	{
 		public byte Fuse { get; set; }
 		public bool Fire { get; set; }
-		private bool CheckPosition = true;
 
 		public PrimedTnt(Level level) : base(EntityType.PrimedTnt, level)
 		{

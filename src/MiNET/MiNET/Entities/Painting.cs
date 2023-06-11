@@ -26,13 +26,14 @@
 using MiNET.Items;
 using MiNET.Net;
 using MiNET.Utils;
+using MiNET.Utils.Vectors;
 using MiNET.Worlds;
 
 namespace MiNET.Entities
 {
 	public class Painting : Entity
 	{
-		public int Direction { get; set; }
+		public int FacingDirection { get; set; }
 		public ItemPainting.PaintingData PaintingData { get; set; }
 		public BoundingBox Bbox { get; set; }
 
@@ -52,7 +53,7 @@ namespace MiNET.Entities
 		{
 			McpeAddPainting painting = McpeAddPainting.CreateObject();
 			painting.coordinates = (BlockCoordinates) KnownPosition;
-			painting.direction = Direction;
+			painting.direction = FacingDirection;
 			painting.entityIdSelf = EntityId;
 			painting.runtimeEntityId = EntityId;
 			painting.title = PaintingData.Title;

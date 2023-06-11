@@ -31,11 +31,13 @@ using MiNET.Entities.Behaviors;
 using MiNET.Items;
 using MiNET.Net;
 using MiNET.Utils;
+using MiNET.Utils.Metadata;
+using MiNET.Utils.Nbt;
 using MiNET.Worlds;
 
 namespace MiNET.Entities.Passive
 {
-	public class Horse : PassiveMob
+	public class Horse : PassiveMob, IRideable
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(Horse));
 

@@ -26,6 +26,7 @@
 using System;
 using log4net;
 using MiNET.Utils;
+using MiNET.Utils.Vectors;
 
 namespace MiNET.Net
 {
@@ -45,12 +46,9 @@ namespace MiNET.Net
 		public PlayerLocation prevSentPosition; // = null;
 		public bool isOnGround; // = null;
 
-		private int _dX;
-		private int _dY;
-		private int _dZ;
-		private int _dPitch;
-		private int _dYaw;
-		private int _dHeadYaw;
+		private float _dX;
+		private float _dY;
+		private float _dZ;
 
 		partial void BeforeEncode()
 		{
@@ -66,9 +64,9 @@ namespace MiNET.Net
 
 			if (currentPosition == null || prevSentPosition == null) return false;
 
-			_dX = ToIntDelta(currentPosition.X, prevSentPosition.X);
-			_dY = ToIntDelta(currentPosition.Y, prevSentPosition.Y);
-			_dZ = ToIntDelta(currentPosition.Z, prevSentPosition.Z);
+			_dX = currentPosition.X;
+			_dY = currentPosition.Y;
+			_dZ = currentPosition.Z;
 
 			if (_dX != 0) flags |= HasX;
 			if (_dY != 0) flags |= HasY;
@@ -88,15 +86,15 @@ namespace MiNET.Net
 			// write the values
 			if ((flags & 0x1) != 0)
 			{
-				WriteSignedVarInt(_dX);
+				Write(_dX);
 			}
 			if ((flags & 0x2) != 0)
 			{
-				WriteSignedVarInt(_dY);
+				Write(_dY);
 			}
 			if ((flags & 0x4) != 0)
 			{
-				WriteSignedVarInt(_dZ);
+				Write(_dZ);
 			}
 
 			float d = 256f / 360f;
@@ -116,32 +114,19 @@ namespace MiNET.Net
 			}
 		}
 
-		public static int ToIntDelta(float current, float prev)
-		{
-			return BitConverter.SingleToInt32Bits(current) - BitConverter.SingleToInt32Bits(prev);
-		}
-
-		public static float FromIntDelta(float prev, int delta)
-		{
-			return BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(prev) + delta);
-		}
-
 		public PlayerLocation GetCurrentPosition(PlayerLocation previousPosition)
 		{
-			if ((flags & HasX) != 0)
-			{
-				currentPosition.X = FromIntDelta(previousPosition.X, _dX);
-			}
-			if ((flags & HasY) != 0)
-			{
-				currentPosition.Y = FromIntDelta(previousPosition.Y, _dY);
-			}
-			if ((flags & HasZ) != 0)
-			{
-				currentPosition.Z = FromIntDelta(previousPosition.Z, _dZ);
-			}
+			var pos = previousPosition;
+			pos.X = ((flags & HasX) != 0) ? currentPosition.X : previousPosition.X;
+			pos.Y = ((flags & HasY) != 0) ? currentPosition.Y : previousPosition.Y;
+			pos.Z = ((flags & HasZ) != 0) ? currentPosition.Z : previousPosition.Z;
+      
+			pos.HeadYaw = ((flags & HasRotZ) != 0) ? -currentPosition.HeadYaw : previousPosition.HeadYaw;
+			pos.Yaw = ((flags & HasRotY) != 0) ? -currentPosition.Yaw : previousPosition.Yaw;
+			pos.Pitch = ((flags & HasRotX) != 0) ? -currentPosition.Pitch : previousPosition.Pitch;
 
-			return currentPosition;
+			//pos.OnGround = this.isOnGround;
+			return pos;
 		}
 
 		partial void AfterDecode()
@@ -150,15 +135,15 @@ namespace MiNET.Net
 
 			if ((flags & HasX) != 0)
 			{
-				_dX = ReadSignedVarInt();
+				currentPosition.X = ReadFloat();
 			}
 			if ((flags & HasY) != 0)
 			{
-				_dY = ReadSignedVarInt();
+				currentPosition.Y = ReadFloat();
 			}
 			if ((flags & HasZ) != 0)
 			{
-				_dZ = ReadSignedVarInt();
+				currentPosition.Z = ReadFloat();
 			}
 
 			float d = 1f / (256f / 360f);

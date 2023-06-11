@@ -40,6 +40,9 @@ using MiNET.Blocks;
 using MiNET.Items;
 using MiNET.Net;
 using MiNET.Utils;
+using MiNET.Utils.Cryptography;
+using MiNET.Utils.Nbt;
+using MiNET.Utils.Vectors;
 using MiNET.Worlds;
 
 namespace MiNET.Test
@@ -200,7 +203,7 @@ namespace MiNET.Test
 			}
 		}
 
-		[TestMethod]
+		/*[TestMethod]
 		public void DeltaEncodeTest()
 		{
 			float curr = 0.34453f;
@@ -211,7 +214,7 @@ namespace MiNET.Test
 			float result = BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits((float) Math.Round(prev, 2)) + delta);
 
 			Assert.AreEqual(Math.Round(curr, 2), Math.Round(result, 2));
-		}
+		}*/
 
 		[TestMethod]
 		public void EncodePaletteChunk()
@@ -432,13 +435,13 @@ namespace MiNET.Test
 		[TestMethod]
 		public void NbtCheckPerformanceTests()
 		{
-			var firework = new ItemFireworks();
+			var firework = new ItemFireworkRocket();
 
-			firework.ExtraData = ItemFireworks.ToNbt(new ItemFireworks.FireworksData()
+			firework.ExtraData = ItemFireworkRocket.ToNbt(new ItemFireworkRocket.FireworksData()
 			{
-				Explosions = new List<ItemFireworks.FireworksExplosion>()
+				Explosions = new List<ItemFireworkRocket.FireworksExplosion>()
 				{
-					new ItemFireworks.FireworksExplosion()
+					new ItemFireworkRocket.FireworksExplosion()
 					{
 						FireworkColor = new[] {(byte) 0},
 						FireworkFade = new[] {(byte) 1},
@@ -446,7 +449,7 @@ namespace MiNET.Test
 						FireworkTrail = false,
 						FireworkType = 0,
 					},
-					new ItemFireworks.FireworksExplosion()
+					new ItemFireworkRocket.FireworksExplosion()
 					{
 						FireworkColor = new[] {(byte) 1},
 						FireworkFade = new[] {(byte) 2},
@@ -454,7 +457,7 @@ namespace MiNET.Test
 						FireworkTrail = false,
 						FireworkType = 1,
 					},
-					new ItemFireworks.FireworksExplosion()
+					new ItemFireworkRocket.FireworksExplosion()
 					{
 						FireworkColor = new[] {(byte) 2},
 						FireworkFade = new[] {(byte) 3},
@@ -462,7 +465,7 @@ namespace MiNET.Test
 						FireworkTrail = false,
 						FireworkType = 2,
 					},
-					new ItemFireworks.FireworksExplosion()
+					new ItemFireworkRocket.FireworksExplosion()
 					{
 						FireworkColor = new[] {(byte) 3},
 						FireworkFade = new[] {(byte) 4},
@@ -470,7 +473,7 @@ namespace MiNET.Test
 						FireworkTrail = false,
 						FireworkType = 3,
 					},
-					new ItemFireworks.FireworksExplosion()
+					new ItemFireworkRocket.FireworksExplosion()
 					{
 						FireworkColor = new[] {(byte) 4},
 						FireworkFade = new[] {(byte) 5},

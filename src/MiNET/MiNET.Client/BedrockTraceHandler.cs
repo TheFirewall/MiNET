@@ -40,6 +40,8 @@ using MiNET.Entities;
 using MiNET.Items;
 using MiNET.Net;
 using MiNET.Utils;
+using MiNET.Utils.Metadata;
+using MiNET.Utils.Vectors;
 using MiNET.Worlds;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -74,16 +76,16 @@ namespace MiNET.Client
 			var sb = new StringBuilder();
 			sb.AppendLine();
 
-			sb.AppendLine("Resource packs:");
-			foreach (ResourcePackInfo info in message.resourcepackinfos)
+			sb.AppendLine("Texture packs:");
+			foreach (TexturePackInfo info in message.texturepacks)
 			{
-				sb.AppendLine($"ID={info.PackIdVersion.Id}, Version={info.PackIdVersion.Version}, Unknown={info.Size}");
+				sb.AppendLine($"ID={info.UUID}, Version={info.Version}, Unknown={info.Size}");
 			}
 
 			sb.AppendLine("Behavior packs:");
 			foreach (ResourcePackInfo info in message.behahaviorpackinfos)
 			{
-				sb.AppendLine($"ID={info.PackIdVersion.Id}, Version={info.PackIdVersion.Version}");
+				sb.AppendLine($"ID={info.UUID}, Version={info.Version}");
 			}
 
 			Log.Debug(sb.ToString());
@@ -101,13 +103,13 @@ namespace MiNET.Client
 			sb.AppendLine("Resource pack stacks:");
 			foreach (var info in message.resourcepackidversions)
 			{
-				sb.AppendLine($"ID={info.Id}, Version={info.Version}, Unknown={info.Unknown}");
+				sb.AppendLine($"ID={info.Id}, Version={info.Version}, Subpackname={info.SubPackName}");
 			}
 
 			sb.AppendLine("Behavior pack stacks:");
 			foreach (var info in message.behaviorpackidversions)
 			{
-				sb.AppendLine($"ID={info.Id}, Version={info.Version}, Unknown={info.Unknown}");
+				sb.AppendLine($"ID={info.Id}, Version={info.Version}, Subpackname={info.SubPackName}");
 			}
 
 			Log.Debug(sb.ToString());
@@ -210,8 +212,9 @@ namespace MiNET.Client
 			Client.CurrentLocation = new PlayerLocation(Client.SpawnPoint, message.rotation.X, message.rotation.X, message.rotation.Y);
 
 			BlockPalette blockPalette = message.blockPalette;
-			Client.BlockPalette = blockPalette;
+			Client.BlockPalette = message.blockPalette;
 
+			//var blockPalette = BlockFactory.BlockStates;
 			Log.Warn($"Got position from startgame packet: {Client.CurrentLocation}");
 
 			var settings = new JsonSerializerSettings
@@ -229,9 +232,8 @@ namespace MiNET.Client
 			using(FileStream file = File.OpenWrite(fileName))
 			{
 				var writer = new IndentedTextWriter(new StreamWriter(file));
-
-				Log.Warn($"Directory:\n{Path.GetTempPath()}");
-				Log.Warn($"Filename:\n{fileName}");
+				
+				Log.Warn($"BlockPalette ({blockPalette.Count}) Filename:\n{fileName}");
 
 				writer.WriteLine($"namespace MiNET.Blocks");
 				writer.WriteLine($"{{");
@@ -282,7 +284,7 @@ namespace MiNET.Client
 							case BlockStateByte blockStateByte:
 							{
 								var values = q.Where(s => s.Name == state.Name).Select(d => ((BlockStateByte) d).Value).Distinct().OrderBy(s => s).ToList();
-								byte defaultVal = ((BlockStateByte) defaultBlockState?.States.First(s => s.Name == state.Name))?.Value ?? 0;
+								byte defaultVal = ((BlockStateByte) defaultBlockState?.States.FirstOrDefault(s => s.Name.Equals(state.Name, StringComparison.OrdinalIgnoreCase)))?.Value ?? 0;
 								if (values.Min() == 0 && values.Max() == 1)
 								{
 									bits.Add(blockStateByte);
@@ -299,7 +301,7 @@ namespace MiNET.Client
 							case BlockStateInt blockStateInt:
 							{
 								var values = q.Where(s => s.Name == state.Name).Select(d => ((BlockStateInt) d).Value).Distinct().OrderBy(s => s).ToList();
-								int defaultVal = ((BlockStateInt) defaultBlockState?.States.First(s => s.Name == state.Name))?.Value ?? 0;
+								int defaultVal = ((BlockStateInt) defaultBlockState?.States.FirstOrDefault(s => s.Name.Equals(state.Name, StringComparison.OrdinalIgnoreCase)))?.Value ?? 0;
 								writer.Write($"[StateRange({values.Min()}, {values.Max()})] ");
 								writer.WriteLine($"public{(propOverride ? " override" : "")} int {CodeName(state.Name, true)} {{ get; set; }} = {defaultVal};");
 								break;
@@ -307,7 +309,7 @@ namespace MiNET.Client
 							case BlockStateString blockStateString:
 							{
 								var values = q.Where(s => s.Name == state.Name).Select(d => ((BlockStateString) d).Value).Distinct().ToList();
-								string defaultVal = ((BlockStateString) defaultBlockState?.States.First(s => s.Name == state.Name))?.Value ?? "";
+								string defaultVal = ((BlockStateString) defaultBlockState?.States.FirstOrDefault(s => s.Name.Equals(state.Name, StringComparison.OrdinalIgnoreCase)))?.Value ?? "";
 								if (values.Count > 1)
 								{
 									writer.WriteLine($"[StateEnum({string.Join(',', values.Select(v => $"\"{v}\""))})]");
@@ -411,11 +413,11 @@ namespace MiNET.Client
 				writer.Flush();
 			}
 
-			LogGamerules(message.gamerules);
+			LogGamerules(message.levelSettings.gamerules);
 
 			Client.LevelInfo.LevelName = "Default";
 			Client.LevelInfo.Version = 19133;
-			Client.LevelInfo.GameType = message.gamemode;
+			Client.LevelInfo.GameType = message.levelSettings.gamemode;
 
 			//ClientUtils.SaveLevel(_level);
 
@@ -665,7 +667,7 @@ namespace MiNET.Client
 					writer.Indent++;
 					foreach (var itemStack in shapelessRecipe.Result)
 					{
-						writer.WriteLine($"new Item({itemStack.Id}, {itemStack.Metadata}, {itemStack.Count}),");
+						writer.WriteLine($"new Item({itemStack.Id}, {itemStack.Metadata}, {itemStack.Count}){{ UniqueId = {itemStack.UniqueId}, RuntimeId={itemStack.RuntimeId} }},");
 					}
 					writer.Indent--;
 					writer.WriteLine($"}},");
@@ -675,7 +677,7 @@ namespace MiNET.Client
 					writer.Indent++;
 					foreach (var itemStack in shapelessRecipe.Input)
 					{
-						writer.WriteLine($"new Item({itemStack.Id}, {itemStack.Metadata}, {itemStack.Count}),");
+						writer.WriteLine($"new Item({itemStack.Id}, {itemStack.Metadata}, {itemStack.Count}){{ UniqueId = {itemStack.UniqueId}, RuntimeId={itemStack.RuntimeId} }},");
 					}
 					writer.Indent--;
 					writer.WriteLine($"}}, \"{shapelessRecipe.Block}\"){{ UniqueId = {shapelessRecipe.UniqueId} }},");
@@ -704,7 +706,7 @@ namespace MiNET.Client
 					writer.Indent++;
 					foreach (Item item in shapedRecipe.Result)
 					{
-						writer.WriteLine($"new Item({item.Id}, {item.Metadata}, {item.Count}),");
+						writer.WriteLine($"new Item({item.Id}, {item.Metadata}, {item.Count}){{ UniqueId = {item.UniqueId}, RuntimeId={item.RuntimeId} }},");
 					}
 					writer.Indent--;
 					writer.WriteLine($"}},");
@@ -714,7 +716,7 @@ namespace MiNET.Client
 					writer.Indent++;
 					foreach (Item item in shapedRecipe.Input)
 					{
-						writer.WriteLine($"new Item({item.Id}, {item.Metadata}, {item.Count}),");
+						writer.WriteLine($"new Item({item.Id}, {item.Metadata}, {item.Count}){{ UniqueId = {item.UniqueId}, RuntimeId={item.RuntimeId} }},");
 					}
 					writer.Indent--;
 					writer.WriteLine($"}}, \"{shapedRecipe.Block}\"){{ UniqueId = {shapedRecipe.UniqueId} }},");
@@ -727,7 +729,7 @@ namespace MiNET.Client
 				var smeltingRecipe = recipe as SmeltingRecipe;
 				if (smeltingRecipe != null)
 				{
-					writer.WriteLine($"new SmeltingRecipe(new Item({smeltingRecipe.Result.Id}, {smeltingRecipe.Result.Metadata}, {smeltingRecipe.Result.Count}), new Item({smeltingRecipe.Input.Id}, {smeltingRecipe.Input.Metadata}), \"{smeltingRecipe.Block}\"),");
+					writer.WriteLine($"new SmeltingRecipe(new Item({smeltingRecipe.Result.Id}, {smeltingRecipe.Result.Metadata}, {smeltingRecipe.Result.Count}){{ UniqueId = {smeltingRecipe.Result.UniqueId}, RuntimeId={smeltingRecipe.Result.RuntimeId} }}, new Item({smeltingRecipe.Input.Id}, {smeltingRecipe.Input.Metadata}){{ UniqueId = {smeltingRecipe.Input.UniqueId}, RuntimeId={smeltingRecipe.Input.RuntimeId} }}, \"{smeltingRecipe.Block}\"),");
 					continue;
 				}
 
@@ -762,7 +764,7 @@ namespace MiNET.Client
 			// TODO doesn't work anymore I guess
 			if (Client.IsEmulator) return;
 
-			if (message.cacheEnabled)
+			if (message.blobHashes != null)
 			{
 				var hits = new ulong[message.blobHashes.Length];
 
@@ -923,6 +925,17 @@ namespace MiNET.Client
 				packet.enabled = Client.UseBlobCache;
 				Client.SendPacket(packet);
 			}
+		}
+
+		/// <inheritdoc />
+		public override void HandleMcpeCommandOutput(McpeCommandOutput message)
+		{
+			base.HandleMcpeCommandOutput(message);
+
+			//foreach (var msg in message.Messages)
+			//{
+			//	Log.Warn($"Received command output: {msg}");
+			//}
 		}
 	}
 }

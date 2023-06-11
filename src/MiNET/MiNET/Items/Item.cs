@@ -32,6 +32,7 @@ using MiNET.BlockEntities;
 using MiNET.Blocks;
 using MiNET.Entities;
 using MiNET.Utils;
+using MiNET.Utils.Vectors;
 using MiNET.Worlds;
 using Newtonsoft.Json;
 
@@ -51,6 +52,8 @@ namespace MiNET.Items
 		public int UniqueId { get; set; } = Environment.TickCount & Int32.MaxValue;
 		public string Name { get; protected set; } = string.Empty;
 		public short Id { get; protected set; }
+		public int NetworkId { get; set; } = -1;
+		public int RuntimeId { get; set; }
 		public short Metadata { get; set; }
 		public byte Count { get; set; }
 		public virtual NbtCompound ExtraData { get; set; }

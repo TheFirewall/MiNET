@@ -62,6 +62,9 @@ namespace MiNET.Net
 					WriteUnsignedVarInt(color);
 					WriteUnsignedVarInt(overlay);
 					break;
+				case Type.Query:
+					WriteEntityId(playerId);
+					break;
 			}
 		}
 
@@ -77,30 +80,33 @@ namespace MiNET.Net
 				case Type.AddPlayer:
 				case Type.RemovePlayer:
 					// Entity Unique ID
-					ReadSignedVarLong();
+					playerId = ReadSignedVarLong();
 					break;
 				case Type.UpdateProgress:
 					// float
-					ReadFloat();
+					healthPercent = ReadFloat();
 					break;
 				case Type.UpdateName:
 					// string
-					ReadString();
+					title = ReadString();
 					break;
 				case Type.AddBoss:
 					// string
-					ReadString();
+					title = ReadString();
 					// float
-					ReadFloat();
+					healthPercent = ReadFloat();
 					goto case Type.UpdateOptions;
 				case Type.UpdateOptions:
 					// ushort?
-					ReadShort();
+					 unknown6 = ReadUshort();
 					goto case Type.UpdateStyle;
 				case Type.UpdateStyle:
 					// NOOP
-					ReadUnsignedVarInt();
-					ReadUnsignedVarInt();
+					color = ReadUnsignedVarInt();
+					overlay = ReadUnsignedVarInt();
+					break;
+				case Type.Query:
+					playerId = ReadSignedVarLong();
 					break;
 			}
 		}

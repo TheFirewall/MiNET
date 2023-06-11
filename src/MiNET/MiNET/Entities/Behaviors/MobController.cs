@@ -28,6 +28,7 @@ using System.Numerics;
 using log4net;
 using MiNET.Blocks;
 using MiNET.Utils;
+using MiNET.Utils.Vectors;
 
 namespace MiNET.Entities.Behaviors
 {
@@ -91,7 +92,7 @@ namespace MiNET.Entities.Behaviors
 			}
 			var yaw = /*ClampDegrees*/ (thetaOffset + tanOutput);
 
-			_entity.Direction = (float) yaw;
+			_entity.EntityDirection = (float) yaw;
 		}
 
 

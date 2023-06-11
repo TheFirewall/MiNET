@@ -24,15 +24,20 @@
 #endregion
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Net;
 using System.Numerics;
+using System.Text.RegularExpressions;
 using log4net;
 using Microsoft.IO;
+using MiNET.Items;
 using MiNET.Net;
 using MiNET.Net.RakNet;
 using MiNET.Plugins;
 using MiNET.Utils;
+using MiNET.Utils.IO;
 using MiNET.Worlds;
 
 namespace MiNET
@@ -67,11 +72,18 @@ namespace MiNET
 
 		public ServerRole ServerRole { get; set; }
 
-		internal static DedicatedThreadPool FastThreadPool { get; set; } = new DedicatedThreadPool(new DedicatedThreadPoolSettings(100, "Fast_Thread"));
+		internal static DedicatedThreadPool FastThreadPool { get; set; }
 
+		static MiNetServer()
+		{
+			
+		}
+		
 		public MiNetServer()
 		{
 			ServerRole = Config.GetProperty("ServerRole", ServerRole.Full);
+			FastThreadPool?.Dispose();
+			FastThreadPool = new DedicatedThreadPool(new DedicatedThreadPoolSettings(Config.GetProperty("FastThreads", 100), "Fast_Thread"));
 		}
 
 		public MiNetServer(IPEndPoint endpoint) : this()
@@ -100,7 +112,7 @@ namespace MiNET
 			Console.WriteLine("  Timer is accurate within {0} nanoseconds",
 				nanosecPerTick);
 		}
-
+		
 		public bool StartServer()
 		{
 			DisplayTimerProperties();
@@ -182,21 +194,20 @@ namespace MiNET
 
 		public void StopServer()
 		{
-			foreach (Level level in LevelManager.Levels)
-			{
-				try
-				{
-					level.Close();
-				}
-				catch (Exception e)
-				{
-					Log.Warn($"Error while stopping server", e);
-				}
-			}
-
+			Log.Info($"Stopping...");
+			LevelManager.Close();
+			
 			Log.Info("Disabling plugins...");
 			PluginManager?.DisablePlugins();
+			
 			_listener?.Stop();
+			ConnectionInfo?.Stop();
+
+			var fastThreadPool = FastThreadPool;
+			fastThreadPool?.Dispose();
+			
+			Log.Info($"Waiting for threads to exit...");
+			fastThreadPool?.WaitForThreadsExit();
 		}
 	}
 

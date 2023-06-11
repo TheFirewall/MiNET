@@ -42,6 +42,8 @@ using log4net;
 using MiNET.Blocks;
 using MiNET.LevelDB;
 using MiNET.Utils;
+using MiNET.Utils.IO;
+using MiNET.Utils.Vectors;
 
 namespace MiNET.Worlds
 {
@@ -62,6 +64,11 @@ namespace MiNET.Worlds
 		public LevelDbProvider(Database db = null)
 		{
 			Db = db;
+		}
+		
+		public LevelDbProvider(string basePath)
+		{
+			BasePath = basePath;
 		}
 
 		public void Initialize()
@@ -172,7 +179,7 @@ namespace MiNET.Worlds
 						continue;
 					}
 
-					ParseSection(chunkColumn[y], sectionBytes);
+					ParseSection(chunkColumn[4 + y], sectionBytes); //Offset by 4 because of 1.18 world update.
 				}
 
 				// Biomes
@@ -190,7 +197,7 @@ namespace MiNET.Worlds
 				byte[] blockEntityBytes = Db.Get(Combine(index, 0x31));
 				sw.Stop();
 
-				Log.Debug($"Read chunk from LevelDB {coordinates.X}, {coordinates.Z} in {sw.ElapsedMilliseconds} ms.");
+				//Log.Debug($"Read chunk from LevelDB {coordinates.X}, {coordinates.Z} in {sw.ElapsedMilliseconds} ms.");
 
 				if (blockEntityBytes != null)
 				{
@@ -216,14 +223,12 @@ namespace MiNET.Worlds
 				}
 			}
 
-			bool isGenerated = false;
 			if (chunkColumn == null)
 			{
 				if (version != null) Log.Error($"Expected other version, but got version={version.First()}");
 
 				chunkColumn = generator?.GenerateChunkColumn(coordinates);
 				chunkColumn?.RecalcHeight();
-				isGenerated = true;
 			}
 
 			if (chunkColumn != null)
@@ -239,7 +244,7 @@ namespace MiNET.Worlds
 				//chunkColumn.NeedSave = isGenerated;
 			}
 
-			Log.Debug($"Read chunk {coordinates.X}, {coordinates.Z} in {sw.ElapsedMilliseconds} ms. Was generated: {isGenerated}");
+			//Log.Debug($"Read chunk {coordinates.X}, {coordinates.Z} in {sw.ElapsedMilliseconds} ms. Was generated: {isGenerated}");
 
 			return chunkColumn;
 		}
@@ -395,6 +400,7 @@ namespace MiNET.Worlds
 
 		private void SaveLevelInfo(LevelInfoBedrock levelInfo)
 		{
+			levelInfo.LastPlayed = DateTimeOffset.Now.ToUnixTimeMilliseconds();
 			string levelFileName = Path.Combine(BasePath, "level.dat");
 			Log.Debug($"Saving level.dat to {levelFileName}");
 

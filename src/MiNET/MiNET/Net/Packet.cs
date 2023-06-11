@@ -38,11 +38,16 @@ using System.Threading;
 using fNbt;
 using log4net;
 using Microsoft.IO;
+using MiNET.Blocks;
 using MiNET.Crafting;
 using MiNET.Items;
 using MiNET.Net.RakNet;
 using MiNET.Utils;
+using MiNET.Utils.IO;
+using MiNET.Utils.Metadata;
+using MiNET.Utils.Nbt;
 using MiNET.Utils.Skins;
+using MiNET.Utils.Vectors;
 using Newtonsoft.Json;
 
 namespace MiNET.Net
@@ -72,7 +77,17 @@ namespace MiNET.Net
 		{
 			Timer.Start();
 		}
+		
+		public void Write(sbyte value)
+		{
+			_writer.Write(value);
+		}
 
+		public sbyte ReadSByte()
+		{
+			return (sbyte)_reader.ReadByte();
+		}
+		
 		public void Write(byte value)
 		{
 			_writer.Write(value);
@@ -544,15 +559,27 @@ namespace MiNET.Net
 						player.ClientUuid = ReadUUID();
 						player.EntityId = ReadSignedVarLong();
 						player.DisplayName = ReadString();
-						ReadString(); // TODO: xuid
-						var platformChatId = ReadString(); // TODO: platform chat ID
-						ReadInt(); // TODO: device os
+						var xuid =  ReadString();
+						var platformChatId = ReadString();
+						var deviceOS = ReadInt();
 						player.Skin = ReadSkin();
 						ReadBool(); // is teacher
 						ReadBool(); // is host
 
+						player.PlayerInfo = new PlayerInfo()
+						{
+							PlatformChatId = platformChatId,
+							DeviceOS = deviceOS,
+							CertificateData = new CertificateData()
+							{
+								ExtraData = new ExtraData()
+								{
+									Xuid = xuid
+								}
+							}
+						};
 						records.Add(player);
-						Log.Debug($"Reading {player.ClientUuid}, {player.EntityId}, '{player.DisplayName}', {platformChatId}");
+						//Log.Debug($"Reading {player.ClientUuid}, {player.EntityId}, '{player.DisplayName}', {platformChatId}");
 					}
 					break;
 				case 1:
@@ -566,9 +593,15 @@ namespace MiNET.Net
 					break;
 			}
 
-			foreach (Player player in records)
+			if (records is PlayerAddRecords)
 			{
-				if (player.Skin != null) player.Skin.IsVerified = ReadBool();
+				foreach (Player player in records)
+				{
+					bool isVerified = ReadBool();
+
+					if (player.Skin != null) 
+						player.Skin.IsVerified = isVerified;
+				}
 			}
 			//if (!_reader.Eof) ReadBool(); // damn BS
 			//if (!_reader.Eof) ReadBool(); // damn BS
@@ -732,16 +765,30 @@ namespace MiNET.Net
 			return ReadNbt(_reader);
 		}
 
-		public static Nbt ReadNbt(Stream stream)
+		public static Nbt ReadNbt(Stream stream, bool allowAlternativeRootTag = true, bool useVarInt = true)
 		{
 			Nbt nbt = new Nbt();
-			NbtFile file = new NbtFile();
-			file.BigEndian = false;
-			file.UseVarInt = true;
-			nbt.NbtFile = file;
-			file.LoadFromStream(stream, NbtCompression.None);
+			NbtFile nbtFile = new NbtFile();
+			nbtFile.BigEndian = false;
+			nbtFile.UseVarInt = useVarInt;
+			nbtFile.AllowAlternativeRootTag = allowAlternativeRootTag;
+
+			nbt.NbtFile = nbtFile;
+			nbtFile.LoadFromStream(stream, NbtCompression.None);
 
 			return nbt;
+		}
+
+		public static NbtCompound ReadNbtCompound(Stream stream, bool useVarInt = false)
+		{
+			NbtFile file = new NbtFile();
+			file.BigEndian = false;
+			file.UseVarInt = useVarInt;
+			file.AllowAlternativeRootTag = false;
+
+			file.LoadFromStream(stream, NbtCompression.None);
+
+			return (NbtCompound) file.RootTag;
 		}
 
 		public void Write(MetadataInts metadata)
@@ -777,20 +824,51 @@ namespace MiNET.Net
 			return metadata;
 		}
 
+		public void Write(CreativeItemStacks itemStacks)
+		{
+			if (itemStacks == null)
+			{
+				WriteUnsignedVarInt(0);
+				return;
+			}
+			
+			WriteUnsignedVarInt((uint) itemStacks.Count);
+
+			foreach(var item in itemStacks)
+			{
+				WriteUnsignedVarInt((uint)item.NetworkId);
+				Write(item, false);
+			}
+		}
+
+		public CreativeItemStacks ReadCreativeItemStacks()
+		{
+			var metadata = new CreativeItemStacks();
+
+			var count = ReadUnsignedVarInt();
+			for (int i = 0; i < count; i++)
+			{
+				var networkId = ReadUnsignedVarInt();
+				Item item = ReadItem(false);
+				item.NetworkId = (int)networkId;
+				metadata.Add(item);
+				Log.Debug(item);
+			}
+
+			return metadata;
+		}
+
 		public void Write(ItemStacks itemStacks)
 		{
 			if (itemStacks == null)
 			{
-				WriteSignedVarInt(0);
 				WriteUnsignedVarInt(0);
 				return;
 			}
 
 			WriteUnsignedVarInt((uint) itemStacks.Count);
-
 			for (int i = 0; i < itemStacks.Count; i++)
 			{
-				WriteVarInt(itemStacks[i].UniqueId);
 				Write(itemStacks[i]);
 			}
 		}
@@ -800,17 +878,14 @@ namespace MiNET.Net
 			var metadata = new ItemStacks();
 
 			var count = ReadUnsignedVarInt();
-
 			for (int i = 0; i < count; i++)
 			{
-				int uniqueId = 1;
-				if (!(this is McpeCraftingEvent))
-				{
-					uniqueId = ReadVarInt();
-				}
-				Item item = ReadItem();
-				item.UniqueId = uniqueId;
+				int networkId = 0;
+				if (this is McpeCreativeContent) networkId = ReadVarInt();
+				Item item = ReadItem(this is not McpeCreativeContent);
+				item.NetworkId = networkId;
 				metadata.Add(item);
+				Log.Debug(item);
 			}
 
 			return metadata;
@@ -818,25 +893,44 @@ namespace MiNET.Net
 
 		public void Write(Transaction transaction)
 		{
+			WriteSignedVarInt(transaction.RequestId);
+
+			if (transaction.RequestId != 0)
+			{
+				WriteUnsignedVarInt((uint) transaction.RequestRecords.Count);
+
+				foreach (var record in transaction.RequestRecords)
+				{
+					Write(record.ContainerId);
+					WriteUnsignedVarInt((uint) record.Slots.Count);
+
+					foreach (var slot in record.Slots)
+					{
+						Write(slot);
+					}
+				}
+			}
+			
 			switch (transaction)
 			{
 				case InventoryMismatchTransaction _:
-					WriteVarInt((int) McpeInventoryTransaction.TransactionType.InventoryMismatch);
+					WriteUnsignedVarInt((int) McpeInventoryTransaction.TransactionType.InventoryMismatch);
 					break;
 				case ItemReleaseTransaction _:
-					WriteVarInt((int) McpeInventoryTransaction.TransactionType.ItemRelease);
+					WriteUnsignedVarInt((int) McpeInventoryTransaction.TransactionType.ItemRelease);
 					break;
 				case ItemUseOnEntityTransaction _:
-					WriteVarInt((int) McpeInventoryTransaction.TransactionType.ItemUseOnEntity);
+					WriteUnsignedVarInt((int) McpeInventoryTransaction.TransactionType.ItemUseOnEntity);
 					break;
 				case ItemUseTransaction _:
-					WriteVarInt((int) McpeInventoryTransaction.TransactionType.ItemUse);
+					WriteUnsignedVarInt((int) McpeInventoryTransaction.TransactionType.ItemUse);
 					break;
 				case NormalTransaction _:
-					WriteVarInt((int) McpeInventoryTransaction.TransactionType.Normal);
+					WriteUnsignedVarInt((int) McpeInventoryTransaction.TransactionType.Normal);
 					break;
 			}
-
+			//Write(transaction.HasNetworkIds);
+			
 			WriteUnsignedVarInt((uint) transaction.TransactionRecords.Count);
 			foreach (var record in transaction.TransactionRecords)
 			{
@@ -865,6 +959,9 @@ namespace MiNET.Net
 				WriteVarInt(record.Slot);
 				Write(record.OldItem);
 				Write(record.NewItem);
+				
+				//if (transaction.HasNetworkIds)
+				//	WriteSignedVarInt(record.StackNetworkId);
 			}
 
 			switch (transaction)
@@ -873,7 +970,7 @@ namespace MiNET.Net
 				case InventoryMismatchTransaction _:
 					break;
 				case ItemUseTransaction t:
-					WriteVarInt((int) t.ActionType);
+					WriteUnsignedVarInt((uint) t.ActionType);
 					Write(t.Position);
 					WriteSignedVarInt(t.Face);
 					WriteSignedVarInt(t.Slot);
@@ -883,15 +980,15 @@ namespace MiNET.Net
 					WriteUnsignedVarInt(t.BlockRuntimeId);
 					break;
 				case ItemUseOnEntityTransaction t:
-					WriteVarLong(t.EntityId);
-					WriteVarInt((int) t.ActionType);
+					WriteUnsignedVarLong(t.EntityId);
+					WriteUnsignedVarInt((uint) t.ActionType);
 					WriteSignedVarInt(t.Slot);
 					Write(t.Item);
 					Write(t.FromPosition);
 					Write(t.ClickPosition);
 					break;
 				case ItemReleaseTransaction t:
-					WriteVarInt((int) t.ActionType);
+					WriteUnsignedVarInt((uint) t.ActionType);
 					WriteSignedVarInt(t.Slot);
 					Write(t.Item);
 					Write(t.FromPosition);
@@ -924,8 +1021,8 @@ namespace MiNET.Net
 			}
 
 			var transactionType = (McpeInventoryTransaction.TransactionType) ReadVarInt();
-			bool hasItemStacks = ReadBool();
-			if(hasItemStacks) Log.Warn($"Got item stacks in old transaction");
+			//bool hasItemStacks = ReadBool();
+			//if(hasItemStacks) Log.Warn($"Got item stacks in old transaction");
 
 			var transactions = new List<TransactionRecord>();
 			uint count = ReadUnsignedVarInt();
@@ -959,7 +1056,9 @@ namespace MiNET.Net
 				record.Slot = ReadVarInt();
 				record.OldItem = ReadItem();
 				record.NewItem = ReadItem();
-				if (hasItemStacks) ReadSignedVarInt();
+			//	if (hasItemStacks) 
+				//	record.StackNetworkId = ReadSignedVarInt();
+				
 				transactions.Add(record);
 			}
 
@@ -1014,8 +1113,186 @@ namespace MiNET.Net
 			return transaction;
 		}
 
+		public StackRequestSlotInfo ReadStackRequestSlotInfo()
+		{
+			var containerId    = (byte) ReadByte();
+			var slot           = (byte) ReadByte();
+			var stackNetworkId = ReadSignedVarInt();
+
+			return new StackRequestSlotInfo()
+			{
+				ContainerId = containerId,
+				Slot = slot,
+				StackNetworkId = stackNetworkId
+			};
+		}
+		
+		public void Write(StackRequestSlotInfo slotInfo)
+		{
+			Write(slotInfo.ContainerId);
+			Write(slotInfo.Slot);
+			WriteSignedVarInt(slotInfo.StackNetworkId);
+		}
+
 		public void Write(ItemStackRequests requests)
 		{
+			WriteUnsignedVarInt((uint) requests.Count);
+
+			foreach (ItemStackActionList request in requests)
+			{
+				WriteSignedVarInt(request.RequestId);
+				WriteUnsignedVarInt((uint) request.Count);
+
+				foreach (ItemStackAction action in request)
+				{
+					switch (action)
+					{
+						case TakeAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.Take);
+							Write(ta.Count);
+							Write(ta.Source);
+							Write(ta.Destination);
+							break;
+						}
+						
+						case PlaceAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.Place);
+							Write(ta.Count);
+							Write(ta.Source);
+							Write(ta.Destination);
+							break;
+						}
+						
+						case SwapAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.Swap);
+							Write(ta.Source);
+							Write(ta.Destination);
+							break;
+						}
+						
+						case DropAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.Drop);
+							Write(ta.Count);
+							Write(ta.Source);
+							Write(ta.Randomly);
+							break;
+						}
+						
+						case DestroyAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.Destroy);
+							Write(ta.Count);
+							Write(ta.Source);
+							break;
+						}
+						
+						case ConsumeAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.Consume);
+							Write(ta.Count);
+							Write(ta.Source);
+							break;
+						}
+						
+						case CreateAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.Create);
+							Write(ta.ResultSlot);
+							break;
+						}
+
+						case PlaceIntoBundleAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.PlaceIntoBundle);
+							break;
+						}
+						
+						case TakeFromBundleAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.TakeFromBundle);
+							break;
+						}
+						
+						case LabTableCombineAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.LabTableCombine);
+							break;
+						}
+						
+						case BeaconPaymentAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.BeaconPayment);
+							WriteSignedVarInt(ta.PrimaryEffect);
+							WriteSignedVarInt(ta.SecondaryEffect);
+							break;
+						}
+						
+						case CraftAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.CraftRecipe);
+							WriteUnsignedVarInt(ta.RecipeNetworkId);
+							break;
+						}
+
+						case CraftAutoAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.CraftRecipeAuto);
+							WriteUnsignedVarInt(ta.RecipeNetworkId);
+							break;
+						}
+						
+						case CraftCreativeAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.CraftCreative);
+							WriteUnsignedVarInt(ta.CreativeItemNetworkId);
+							break;
+						}
+
+						case CraftRecipeOptionalAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.CraftRecipeOptional);
+							WriteUnsignedVarInt(ta.RecipeNetworkId);
+							Write(ta.FilteredStringIndex);
+							break;
+						}
+
+						case GrindstoneStackRequestAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.CraftGrindstone);
+							WriteUnsignedVarInt(ta.RecipeNetworkId);
+							WriteVarInt(ta.RepairCost);
+							break;
+						}
+						
+						case LoomStackRequestAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.CraftLoom);
+							Write(ta.PatternId);
+							break;
+						}
+
+						case CraftNotImplementedDeprecatedAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.CraftNotImplementedDeprecated);
+							break;
+						}
+						
+						case CraftResultDeprecatedAction ta:
+						{
+							Write((byte) McpeItemStackRequest.ActionType.CraftResultsDeprecated);
+							Write(ta.ResultItems);
+							Write(ta.TimesCrafted);
+							break;
+						}
+					}
+				}
+				
+				WriteUnsignedVarInt(0); //FilterStrings
+			}
 		}
 
 		//public const TAKE = 0;
@@ -1030,8 +1307,9 @@ namespace MiNET.Net
 		//public const CRAFTING_RECIPE = 9;
 		//public const CRAFTING_RECIPE_AUTO = 10; //recipe book?
 		//public const CREATIVE_CREATE = 11;
-		//public const CRAFTING_NON_IMPLEMENTED_DEPRECATED_ASK_TY_LAING = 12; //anvils aren't fully implemented yet
-		//public const CRAFTING_RESULTS_DEPRECATED_ASK_TY_LAING = 13; //no idea what this is for
+		//public const CRAFT_RECIPE_OPTIONAL = 12;
+		//public const CRAFTING_NON_IMPLEMENTED_DEPRECATED_ASK_TY_LAING = 13; 
+		//public const CRAFTING_RESULTS_DEPRECATED_ASK_TY_LAING = 14; //no idea what this is for
 
 		public ItemStackRequests ReadItemStackRequests()
 		{
@@ -1057,8 +1335,8 @@ namespace MiNET.Net
 						{
 							var action = new TakeAction();
 							action.Count = ReadByte();
-							action.Source = new StackRequestSlotInfo().Read(_reader);
-							action.Destination = new StackRequestSlotInfo().Read(_reader);
+							action.Source = ReadStackRequestSlotInfo();
+							action.Destination = ReadStackRequestSlotInfo();
 							actions.Add(action);
 							break;
 						}
@@ -1066,16 +1344,16 @@ namespace MiNET.Net
 						{
 							var action = new PlaceAction();
 							action.Count = ReadByte();
-							action.Source = new StackRequestSlotInfo().Read(_reader);
-							action.Destination = new StackRequestSlotInfo().Read(_reader);
+							action.Source = ReadStackRequestSlotInfo();
+							action.Destination = ReadStackRequestSlotInfo();
 							actions.Add(action);
 							break;
 						}
 						case McpeItemStackRequest.ActionType.Swap:
 						{
 							var action = new SwapAction();
-							action.Source = new StackRequestSlotInfo().Read(_reader);
-							action.Destination = new StackRequestSlotInfo().Read(_reader);
+							action.Source = ReadStackRequestSlotInfo();
+							action.Destination = ReadStackRequestSlotInfo();
 							actions.Add(action);
 							break;
 						}
@@ -1083,7 +1361,7 @@ namespace MiNET.Net
 						{
 							var action = new DropAction();
 							action.Count = ReadByte();
-							action.Source = new StackRequestSlotInfo().Read(_reader);
+							action.Source = ReadStackRequestSlotInfo();
 							action.Randomly = ReadBool();
 							actions.Add(action);
 							break;
@@ -1092,7 +1370,7 @@ namespace MiNET.Net
 						{
 							var action = new DestroyAction();
 							action.Count = ReadByte();
-							action.Source = new StackRequestSlotInfo().Read(_reader);
+							action.Source = ReadStackRequestSlotInfo();
 							actions.Add(action);
 							break;
 						}
@@ -1100,7 +1378,7 @@ namespace MiNET.Net
 						{
 							var action = new ConsumeAction();
 							action.Count = ReadByte();
-							action.Source = new StackRequestSlotInfo().Read(_reader);
+							action.Source = ReadStackRequestSlotInfo();
 							actions.Add(action);
 							break;
 						}
@@ -1108,6 +1386,20 @@ namespace MiNET.Net
 						{
 							var action = new CreateAction();
 							action.ResultSlot = ReadByte();
+							actions.Add(action);
+							break;
+						}
+
+						case McpeItemStackRequest.ActionType.PlaceIntoBundle:
+						{
+							var action = new PlaceIntoBundleAction();
+							actions.Add(action);
+							break;
+						}
+
+						case McpeItemStackRequest.ActionType.TakeFromBundle:
+						{
+							var action = new TakeFromBundleAction();
 							actions.Add(action);
 							break;
 						}
@@ -1146,6 +1438,30 @@ namespace MiNET.Net
 							actions.Add(action);
 							break;
 						}
+						case McpeItemStackRequest.ActionType.CraftRecipeOptional:
+						{
+							var action = new CraftRecipeOptionalAction();
+							action.RecipeNetworkId = ReadUnsignedVarInt();
+							action.FilteredStringIndex = ReadInt();
+							actions.Add(action);
+							break;
+						}
+						case McpeItemStackRequest.ActionType.CraftGrindstone:
+						{
+							var action = new GrindstoneStackRequestAction();
+							action.RecipeNetworkId = ReadUnsignedVarInt();
+							action.RepairCost = ReadVarInt();
+							
+							actions.Add(action);
+							break;
+						}
+						case McpeItemStackRequest.ActionType.CraftLoom:
+						{
+							var action = new LoomStackRequestAction();
+							action.PatternId = ReadString();
+							actions.Add(action);
+							break;
+						}
 						case McpeItemStackRequest.ActionType.CraftNotImplementedDeprecated:
 						{
 							var action = new CraftNotImplementedDeprecatedAction();
@@ -1164,7 +1480,15 @@ namespace MiNET.Net
 							throw new ArgumentOutOfRangeException();
 					}
 				}
+				
 				requests.Add(actions);
+
+				var filterStringCount = ReadUnsignedVarInt();
+
+				for (int fi = 0; fi < filterStringCount; fi++)
+				{
+					ReadString();
+				}
 			}
 
 			return requests;
@@ -1175,10 +1499,12 @@ namespace MiNET.Net
 			WriteUnsignedVarInt((uint) responses.Count);
 			foreach (ItemStackResponse stackResponse in responses)
 			{
-				Write(stackResponse.Success);
+				Write((byte) stackResponse.Result);
 				WriteSignedVarInt(stackResponse.RequestId);
-				WriteUnsignedVarInt((uint) stackResponse.Responses.Count);
-				foreach (StackResponseContainerInfo containerInfo in stackResponse.Responses)
+				if (stackResponse.Result != StackResponseStatus.Ok) 
+					continue;
+				WriteUnsignedVarInt((uint) stackResponse.ResponseContainerInfos.Count);
+				foreach (StackResponseContainerInfo containerInfo in stackResponse.ResponseContainerInfos)
 				{
 					Write(containerInfo.ContainerId);
 					WriteUnsignedVarInt((uint) containerInfo.Slots.Count);
@@ -1188,6 +1514,8 @@ namespace MiNET.Net
 						Write(slot.HotbarSlot);
 						Write(slot.Count);
 						WriteSignedVarInt(slot.StackNetworkId);
+						Write(slot.CustomName);
+						WriteSignedVarInt(slot.DurabilityCorrection);
 					}
 				}
 			}
@@ -1196,9 +1524,81 @@ namespace MiNET.Net
 
 		public ItemStackResponses ReadItemStackResponses()
 		{
-			return new ItemStackResponses();
+			var responses = new ItemStackResponses();
+			var count     = ReadUnsignedVarInt();
+
+			for (var i = 0; i < count; i++)
+			{
+				var response = new ItemStackResponse();
+				response.Result = (StackResponseStatus) ReadByte();
+				response.RequestId = ReadSignedVarInt();
+				
+				if (response.Result != StackResponseStatus.Ok)
+					continue;
+				
+				response.ResponseContainerInfos = new List<StackResponseContainerInfo>();
+				var subCount = ReadUnsignedVarInt();
+				for (int sub = 0; sub < subCount; sub++)
+				{
+					var containerInfo = new StackResponseContainerInfo();
+					containerInfo.ContainerId = ReadByte();
+
+					var slotCount = ReadUnsignedVarInt();
+					containerInfo.Slots = new List<StackResponseSlotInfo>();
+					
+					for (int si = 0; si < slotCount; si++)
+					{
+						var slot = new StackResponseSlotInfo();
+						slot.Slot = ReadByte();
+						slot.HotbarSlot = ReadByte();
+						slot.Count = ReadByte();
+						slot.StackNetworkId = ReadSignedVarInt();
+						slot.CustomName = ReadString();
+						slot.DurabilityCorrection = ReadSignedVarInt();
+						
+						containerInfo.Slots.Add(slot);
+					}
+					
+					response.ResponseContainerInfos.Add(containerInfo);
+				}
+				
+				responses.Add(response);
+			}
+			
+			return responses;
 		}
 
+		public void Write(ItemComponentList list)
+		{
+			WriteUnsignedVarInt((uint) list.Count);
+
+			foreach (var item in list)
+			{
+				Write(item.Name);
+				Write(item.Nbt);
+			}
+		}
+		
+		public ItemComponentList ReadItemComponentList()
+		{
+			var               count = ReadUnsignedVarInt();
+			ItemComponentList l     = new ItemComponentList();
+
+			for (int i = 0; i < count; i++)
+			{
+				string        name      = ReadString();
+				var           nbt       = ReadNbt();
+				
+				ItemComponent component = new ItemComponent();
+				component.Name = name;
+				component.Nbt = nbt;
+				
+				l.Add(component);
+			}
+
+			return l;
+		}
+		
 		public void Write(EnchantOptions options)
 		{
 			WriteUnsignedVarInt((uint) options.Count);
@@ -1222,12 +1622,42 @@ namespace MiNET.Net
 				Write(enchant.Id);	
 				Write(enchant.Level);	
 			}
+		}
 
+		private List<Enchant> ReadEnchants()
+		{
+			List<Enchant> enchants = new List<Enchant>();
+			var           count    = ReadUnsignedVarInt();
+
+			for (int i = 0; i < count; i++)
+			{
+				Enchant enchant = new Enchant(ReadByte(), ReadByte());
+				enchants.Add(enchant);
+			}
+
+			return enchants;
 		}
 
 		public EnchantOptions ReadEnchantOptions()
 		{
-			return new EnchantOptions();
+			var options = new EnchantOptions();
+			var count   = ReadUnsignedVarInt();
+
+			for (int i = 0; i < count; i++)
+			{
+				EnchantOption option = new EnchantOption();
+				option.Cost = ReadUnsignedVarInt();
+				option.Flags = ReadInt();
+				option.EquipActivatedEnchantments = ReadEnchants();
+				option.HeldActivatedEnchantments = ReadEnchants();
+				option.SelfActivatedEnchantments = ReadEnchants();
+				option.Name = ReadString();
+				option.OptionId = ReadVarInt();
+				
+				options.Add(option);
+			}
+			
+			return options;
 		}
 
 		public void Write(AnimationKey[] keys)
@@ -1272,48 +1702,76 @@ namespace MiNET.Net
 
 			for (int i = 0; i < count; i++)
 			{
-				items.Add(ReadItem());
+				items.Add(ReadItem(false));
 			}
 
 			return items;
 		}
 
-
-		public void Write(Item stack)
+		private const int ShieldId = 355;
+		public void Write(Item stack, bool writeUniqueId = true)
 		{
-			if (stack == null || stack.Id == 0)
+			if (stack == null || stack.Id == 0 || !ItemFactory.Translator.TryGetNetworkId(stack.Id, stack.Metadata, out var netData))
 			{
 				WriteSignedVarInt(0);
 				return;
 			}
 
-			WriteSignedVarInt(stack.Id);
-			short metadata = stack.Metadata;
-			if (metadata == -1) metadata = short.MaxValue;
-			WriteSignedVarInt((metadata << 8) + (stack.Count & 0xff));
+			//var netId = ItemFactory.Translator.ToNetworkId(stack.Id, stack.Metadata);
+			WriteSignedVarInt(netData.Id);
+			
+			//WriteSignedVarInt(id);
 
-			if (stack.ExtraData != null)
-			{
-				byte[] bytes = GetNbtData(stack.ExtraData);
-				Write((ushort) 0xffff); //(short) bytes.Length
-				Write((byte) 0x01);
-				Write(bytes);
-			}
-			else
-			{
-				Write((short) 0);
-			}
+			Write((short) stack.Count);
+			WriteUnsignedVarInt((uint)netData.Meta);
 
-			WriteSignedVarInt(0);
-			WriteSignedVarInt(0);
-
-			if (stack.Id == 513) // shield
+			if (writeUniqueId)
 			{
-				WriteSignedVarInt(0); // something about tick, crap code
+				Write(stack.UniqueId != 0);
+
+				if (stack.UniqueId != 0)
+				{
+					WriteVarInt(stack.UniqueId);
+				}
 			}
+			
+			WriteSignedVarInt(stack.RuntimeId);
+
+			byte[] extraData = null;
+			//Write extra data
+			using (var ms = new MemoryStream())
+			{
+				using (BinaryWriter binaryWriter = new BinaryWriter(ms, Encoding.UTF8, true))
+				{
+					if (stack.ExtraData != null)
+					{
+						binaryWriter.Write((ushort) 0xffff);
+						binaryWriter.Write((byte)1);
+						var nbtData = GetNbtData(stack.ExtraData, false);
+						binaryWriter.Write(nbtData);
+					}
+					else
+					{
+						binaryWriter.Write((short) 0);
+					}
+
+					binaryWriter.Write(0); //Write Int
+					binaryWriter.Write(0); //Write Int
+
+					if (stack.Id == 513)
+					{
+						binaryWriter.Write((long) 0);
+					}
+				}
+
+				extraData = ms.ToArray();
+			}
+			
+			WriteLength(extraData.Length);
+			Write(extraData);
 		}
 
-		public Item ReadItem()
+		public Item ReadItem(bool readUniqueId = true)
 		{
 			int id = ReadSignedVarInt();
 			if (id == 0)
@@ -1321,44 +1779,76 @@ namespace MiNET.Net
 				return new ItemAir();
 			}
 
-			int tmp = ReadSignedVarInt();
-			short metadata = (short) (tmp >> 8);
-			if (metadata == short.MaxValue) metadata = -1;
-			byte count = (byte) (tmp & 0xff);
-			Item stack = ItemFactory.GetItem((short) id, metadata, count);
+			short count = (short) ReadShort();
+			var metadata = ReadUnsignedVarInt();
 
-			ushort nbtLen = _reader.ReadUInt16(); // NbtLen
-			if (nbtLen == 0xffff && ReadByte() == 1)
+			var translated = ItemFactory.Translator.FromNetworkId(id, (short)metadata);
+
+			Item stack = ItemFactory.GetItem((short)translated.Id, translated.Meta, count);
+
+			if (readUniqueId)
 			{
-				stack.ExtraData = (NbtCompound) ReadNbt().NbtFile.RootTag;
+				if (ReadBool()) stack.UniqueId = ReadVarInt();
 			}
 
-			var canPlace = ReadSignedVarInt();
-			for (int i = 0; i < canPlace; i++)
-			{
-				ReadString();
-			}
-			var canBreak = ReadSignedVarInt();
-			for (int i = 0; i < canBreak; i++)
-			{
-				ReadString();
-			}
+			stack.RuntimeId = ReadSignedVarInt();
 
-			if (id == 513) // shield
-			{
-				ReadSignedVarLong(); // something about tick, crap code
-			}
+			int length = ReadLength();
+			var data = ReadBytes(length);
 
+			using (MemoryStream ms = new MemoryStream(data))
+			{
+				using (BinaryReader binaryReader = new BinaryReader(ms))
+				{
+					ushort nbtLen = binaryReader.ReadUInt16();
+					if (nbtLen == 0xffff)
+					{
+						byte version = binaryReader.ReadByte();
+
+						if (version != 1)
+						{
+							throw new Exception($"Fringe nbt version when reading item extra NBT: {version}");
+						}
+
+						var beforeRead = ms.Position;
+						stack.ExtraData = ReadNbtCompound(ms, false);
+						var afterRead = ms.Position;
+						var nbtCompoundLength = afterRead - beforeRead;
+					}
+					else if (nbtLen > 0)
+					{
+						throw new Exception($"Fringe nbt length when reading item extra NBT: {nbtLen}");
+					}
+					
+					int canPlace = binaryReader.ReadInt32();
+					for (int i = 0; i < canPlace; i++)
+					{
+						var l = binaryReader.ReadInt16();
+						binaryReader.ReadBytes(l);
+					}
+					int canBreak = binaryReader.ReadInt32();
+					for (int i = 0; i < canBreak; i++)
+					{
+						var l = binaryReader.ReadInt16();
+						binaryReader.ReadBytes(l);
+					}
+
+					if (stack.RuntimeId == ShieldId) // shield
+					{
+						binaryReader.ReadInt64(); // something about tick, crap code
+					}
+				}
+			}
 			return stack;
 		}
 
 
-		public static byte[] GetNbtData(NbtCompound nbtCompound)
+		public static byte[] GetNbtData(NbtCompound nbtCompound, bool useVarInt = true)
 		{
 			nbtCompound.Name = string.Empty;
 			var file = new NbtFile(nbtCompound);
 			file.BigEndian = false;
-			file.UseVarInt = true;
+			file.UseVarInt = useVarInt;
 
 			return file.SaveToBuffer(NbtCompression.None);
 		}
@@ -1423,24 +1913,34 @@ namespace MiNET.Net
 			for (int i = 0; i < count; i++)
 			{
 				string name = ReadString();
-				byte type = ReadByte();
+				bool isPlayerModifiable = ReadBool();
+				var type = ReadUnsignedVarInt();
 				switch (type)
 				{
 					case 1:
 					{
-						GameRule<bool> rule = new GameRule<bool>(name, ReadBool());
+						GameRule<bool> rule = new GameRule<bool>(name, ReadBool())
+						{
+							IsPlayerModifiable = isPlayerModifiable
+						};
 						gameRules.Add(rule);
 						break;
 					}
 					case 2:
 					{
-						GameRule<int> rule = new GameRule<int>(name, ReadVarInt());
+						GameRule<int> rule = new GameRule<int>(name, ReadVarInt())
+						{
+							IsPlayerModifiable = isPlayerModifiable
+						};
 						gameRules.Add(rule);
 						break;
 					}
 					case 3:
 					{
-						GameRule<float> rule = new GameRule<float>(name, ReadFloat());
+						GameRule<float> rule = new GameRule<float>(name, ReadFloat())
+						{
+							IsPlayerModifiable = isPlayerModifiable
+						};
 						gameRules.Add(rule);
 						break;
 					}
@@ -1462,19 +1962,21 @@ namespace MiNET.Net
 			foreach (var rule in gameRules)
 			{
 				Write(rule.Name.ToLower());
+				Write(rule.IsPlayerModifiable); // bool isPlayerModifiable
+
 				if (rule is GameRule<bool>)
 				{
-					Write((byte) 1);
+					WriteUnsignedVarInt(1);
 					Write(((GameRule<bool>) rule).Value);
 				}
 				else if (rule is GameRule<int>)
 				{
-					Write((byte) 2);
+					WriteUnsignedVarInt(2);
 					WriteVarInt(((GameRule<int>) rule).Value);
 				}
 				else if (rule is GameRule<float>)
 				{
-					Write((byte) 3);
+					WriteUnsignedVarInt(3);
 					Write(((GameRule<float>) rule).Value);
 				}
 			}
@@ -1526,11 +2028,18 @@ namespace MiNET.Net
 			{
 				var name = ReadString();
 				var legacyId = ReadShort();
-				result.Add(runtimeId, new Itemstate
+				var component = ReadBool();
+
+				if (name == "minecraft:shield")
+				{
+					Log.Warn($"Got shield with runtime id {runtimeId}, legacy {legacyId}");
+				}
+
+				result.Add(new Itemstate
 				{
 					Id = legacyId,
-					RuntimeId = runtimeId,
-					Name = name
+					Name = name,
+					ComponentBased = component
 				});
 			}
 
@@ -1545,134 +2054,202 @@ namespace MiNET.Net
 				return;
 			}
 			WriteUnsignedVarInt((uint) itemstates.Count);
-			foreach (var itemstate in itemstates.OrderBy(kvp => kvp.Key))
+			foreach (var itemstate in itemstates)
 			{
-				Write(itemstate.Value.Name);
-				Write(itemstate.Value.Id);
+				Write(itemstate.Name);
+				Write(itemstate.Id);
+				Write(itemstate.ComponentBased);
 			}
 		}
 
 		public BlockPalette ReadBlockPalette()
 		{
-			var result = new BlockPalette();
+			var  result = new BlockPalette();
+			var count  = ReadUnsignedVarInt();
 
-			var nbt = new Nbt();
-			var file = new NbtFile();
-			file.BigEndian = false;
-			file.UseVarInt = true;
-			file.AllowAlternativeRootTag = true;
-			nbt.NbtFile = file;
-
-			file.LoadFromStream(_reader, NbtCompression.None);
-
-			int runtimeId = 0;
-			var rootTag = (NbtList) file.RootTag;
-			foreach (NbtTag tag in rootTag)
+			for (int runtimeId = 0; runtimeId < count; runtimeId++)
 			{
 				var record = new BlockStateContainer();
-				record.RuntimeId = runtimeId++;
-				record.Id = tag["id"].ShortValue;
-
-				var blockTag = (NbtCompound) tag["block"];
-				record.Name = blockTag["name"].StringValue;
-				if (blockTag.Contains("data")) record.Data = blockTag["data"].ShortValue;
-
+				record.Id = record.RuntimeId = runtimeId;
+				record.Name = ReadString();
 				record.States = new List<IBlockState>();
-				var states = (NbtCompound) blockTag["states"];
-				foreach (NbtTag stateTag in states)
+
+				var nbt = ReadNbt(_reader);
+				var rootTag = nbt.NbtFile.RootTag;
+
+				foreach (var state in GetBlockStates(rootTag))
 				{
-					IBlockState state = null;
-					switch (stateTag.TagType)
-					{
-						case NbtTagType.Byte:
-							state = new BlockStateByte()
-							{
-								Name = stateTag.Name,
-								Value = stateTag.ByteValue
-							};
-							break;
-						case NbtTagType.Int:
-							state = new BlockStateInt()
-							{
-								Name = stateTag.Name,
-								Value = stateTag.IntValue
-							};
-							break;
-						case NbtTagType.String:
-							state = new BlockStateString()
-							{
-								Name = stateTag.Name,
-								Value = stateTag.StringValue
-							};
-							break;
-						default:
-							throw new ArgumentOutOfRangeException();
-					}
 					record.States.Add(state);
 				}
-
-				result.Add(record);
 			}
 
 			return result;
 		}
+		
+		private IEnumerable<IBlockState> GetBlockStates(NbtTag tag)
+		{
+			switch (tag.TagType)
+			{
+				case NbtTagType.List:
+				{
+					foreach (var state in GetBlockStatesFromList((NbtList) tag))
+						yield return state;
+				} break;
+
+				case NbtTagType.Compound:
+				{
+					foreach (var state in GetBlockStatesFromCompound((NbtCompound) tag))
+						yield return state;
+				} break;
+
+				default:
+				{
+					if (TryGetStateFromTag(tag, out var state))
+						yield return state;
+				} break;
+			}
+		}
+
+		private IEnumerable<IBlockState> GetBlockStatesFromCompound(NbtCompound list)
+		{
+			if (list.TryGet("states", out NbtTag states))
+			{
+				foreach (var state in GetBlockStates(states))
+				{
+					yield return state;
+				}
+			}
+		}
+		
+		
+		private IEnumerable<IBlockState> GetBlockStatesFromList(NbtList list)
+		{
+			foreach (NbtTag tag in list)
+			{
+				if (TryGetStateFromTag(tag, out var state))
+				{
+					yield return state;
+				}
+				else
+				{
+					foreach (var s in GetBlockStates(tag))
+					{
+						yield return s;
+					}
+				}
+			}
+		}
+
+		private bool TryGetStateFromTag(NbtTag tag, out IBlockState state)
+		{
+			switch (tag.TagType)
+			{
+				case NbtTagType.Byte:
+					state = new BlockStateByte()
+					{
+						Name = tag.Name, Value = tag.ByteValue
+					};
+					return true;
+
+				case NbtTagType.Int:
+					state = new BlockStateInt()
+					{
+						Name = tag.Name, Value = tag.IntValue
+					};
+					return true;
+
+				case NbtTagType.String:
+					state = new BlockStateString()
+					{
+						Name = tag.Name, Value = tag.StringValue
+					};
+					return true;
+			}
+
+			state = null;
+
+			return false;
+		}
 
 		public void Write(BlockPalette palette)
 		{
-			var list = new NbtList("", NbtTagType.Compound);
+			if(palette == null)
+			{
+				WriteUnsignedVarInt(0);
+				return;
+			}
+			WriteUnsignedVarInt((uint)palette.Count);
 			foreach (BlockStateContainer record in palette)
 			{
-				var states = new List<NbtTag>();
-				foreach (IBlockState state in record.States)
-				{
-					NbtTag stateTag = null;
-					switch (state)
-					{
-						case BlockStateByte blockStateByte:
-							stateTag = new NbtByte(state.Name, blockStateByte.Value);
-							break;
-						case BlockStateInt blockStateInt:
-							stateTag = new NbtInt(state.Name, blockStateInt.Value);
-							break;
-						case BlockStateString blockStateString:
-							stateTag = new NbtString(state.Name, blockStateString.Value);
-							break;
-						default:
-							throw new ArgumentOutOfRangeException(nameof(state));
-					}
-
-					states.Add(stateTag);
-				}
-
-				var recordTag = new NbtCompound()
-				{
-					new NbtShort("id", (short) record.Data),
-					new NbtShort("data", (short) record.Id),
-					new NbtCompound("block")
-					{
-						new NbtString("name", record.Name),
-						new NbtCompound("states", states),
-						new NbtInt("version", BlockPalette.Version),
-					}
-				};
-
-				list.Add(recordTag);
+				Write(record.Name);
+				Write(record.StatesCacheNbt);
 			}
-
-			// Get bytes
-			var nbt = new NbtFile()
-			{
-				BigEndian = false,
-				UseVarInt = true,
-				RootTag = list
-			};
-
-			byte[] nbtBinary = nbt.SaveToBuffer(NbtCompression.None);
-
-			Write(nbtBinary);
 		}
 
-		public void Write(Links links)
+		public void Write(AbilityLayer layer)
+		{
+			Write((ushort)layer.Type);
+			Write((uint)layer.Abilities);
+			Write((uint)layer.Values);
+			Write(layer.FlySpeed);
+			Write(layer.WalkSpeed);
+		}
+
+		public AbilityLayer ReadAbilityLayer()
+		{
+			AbilityLayer layer = new AbilityLayer();
+			layer.Type = (AbilityLayerType) ReadUshort();
+			layer.Abilities = (PlayerAbility)ReadUint();
+			layer.Values = ReadUint();
+			layer.FlySpeed = ReadFloat();
+			layer.WalkSpeed = ReadFloat();
+
+			return layer;
+		}
+
+		public void Write(AbilityLayers layers)
+		{
+			Write((byte)layers.Count);
+
+			foreach (var layer in layers)
+			{
+				Write(layer);
+			}
+		}
+		
+		public AbilityLayers ReadAbilityLayers()
+		{
+			AbilityLayers layers = new AbilityLayers();
+			var count = ReadByte();
+
+			for (int i = 0; i < count; i++)
+			{
+				layers.Add(ReadAbilityLayer());
+			}
+			return layers;
+		}
+
+		public void Write(EntityLink link)
+		{
+			WriteVarLong(link.FromEntityId);
+			WriteVarLong(link.ToEntityId);
+			Write((byte)link.Type);
+			Write(link.Immediate);
+			Write(link.CausedByRider);
+		}
+
+		public EntityLink ReadEntityLink()
+		{
+			var from = ReadVarLong();
+			var to = ReadVarLong();
+			var type = (EntityLink.EntityLinkType) ReadByte();
+			var immediate = ReadBool();
+			var causedByRider = ReadBool();
+
+			return new EntityLink(from, to, type, immediate, causedByRider);
+		}
+		
+		public void Write(EntityLinks links)
 		{
 			if (links == null)
 			{
@@ -1682,22 +2259,18 @@ namespace MiNET.Net
 			WriteUnsignedVarInt((uint) links.Count); // LE
 			foreach (var link in links)
 			{
-				WriteVarLong(link.Item1);
-				WriteVarLong(link.Item2);
-				_writer.Write((byte) 1);
-				_writer.Write((byte) 0);
+				Write(link);
 			}
 		}
 
-		public Links ReadLinks()
+		public EntityLinks ReadEntityLinks()
 		{
 			var count = ReadUnsignedVarInt();
 
-			var links = new Links();
+			var links = new EntityLinks();
 			for (int i = 0; i < count; i++)
 			{
-				Tuple<long, long> link = new Tuple<long, long>(ReadSignedVarLong(), ReadSignedVarLong());
-				_reader.ReadInt16();
+				links.Add(ReadEntityLink());
 			}
 
 			return links;
@@ -1731,6 +2304,63 @@ namespace MiNET.Net
 			return rules;
 		}
 
+		public void Write(TexturePackInfos packInfos)
+		{
+			if (packInfos == null)
+			{
+				_writer.Write((short) 0);
+
+				return;
+			}
+			
+			_writer.Write((short) packInfos.Count); // LE
+			//WriteVarInt(packInfos.Count);
+			foreach (var info in packInfos)
+			{
+				Write(info.UUID);
+				Write(info.Version);
+				Write(info.Size);
+				Write(info.ContentKey);
+				Write(info.SubPackName);
+				Write(info.ContentIdentity);
+				Write(info.HasScripts);
+				Write(info.RtxEnabled);
+			}
+		}
+
+		public TexturePackInfos ReadTexturePackInfos()
+		{
+			int count = _reader.ReadInt16(); // LE
+			//int count = ReadVarInt(); // LE
+
+			var packInfos = new TexturePackInfos();
+			for (int i = 0; i < count; i++)
+			{
+				var info            = new TexturePackInfo();
+				var id              = ReadString();
+				var version         = ReadString();
+				var size            = ReadUlong();
+				var encryptionKey   = ReadString();
+				var subpackName     = ReadString();
+				var contentIdentity = ReadString();
+				var hasScripts      = ReadBool();
+				var rtxEnabled      = ReadBool();
+				
+				info.UUID = id;
+				info.Version = version;
+				info.Size = size;
+				info.HasScripts = hasScripts;
+				info.ContentKey = encryptionKey;
+				info.SubPackName = subpackName;
+				info.ContentIdentity = contentIdentity;
+				info.RtxEnabled = rtxEnabled;
+				
+				packInfos.Add(info);
+			}
+
+			return packInfos;
+		}
+		
 		public void Write(ResourcePackInfos packInfos)
 		{
 			if (packInfos == null)
@@ -1744,12 +2374,12 @@ namespace MiNET.Net
 			//WriteVarInt(packInfos.Count);
 			foreach (var info in packInfos)
 			{
-				Write(info.PackIdVersion.Id);
-				Write(info.PackIdVersion.Version);
+				Write(info.UUID);
+				Write(info.Version);
 				Write(info.Size);
-				Write(""); //TODO: encryption key
-				Write(""); //TODO: subpack name
-				Write(""); //TODO: content identity
+				Write(info.ContentKey);
+				Write(info.SubPackName);
+				Write(info.ContentIdentity);
 				Write(info.HasScripts);
 			}
 		}
@@ -1763,6 +2393,7 @@ namespace MiNET.Net
 			for (int i = 0; i < count; i++)
 			{
 				var info = new ResourcePackInfo();
+				
 				var id = ReadString();
 				var version = ReadString();
 				var size = ReadUlong();
@@ -1770,13 +2401,15 @@ namespace MiNET.Net
 				var subpackName = ReadString();
 				var contentIdentity = ReadString();
 				var hasScripts = ReadBool();
-				info.PackIdVersion = new PackIdVersion
-				{
-					Id = id,
-					Version = version,
-				};
+				
+				info.UUID = id;
+				info.Version = version;
 				info.Size = size;
+				info.ContentKey = encryptionKey;
+				info.SubPackName = subpackName;
+				info.ContentIdentity = contentIdentity;
 				info.HasScripts = hasScripts;
+				
 				packInfos.Add(info);
 			}
 
@@ -1785,7 +2418,7 @@ namespace MiNET.Net
 
 		public void Write(ResourcePackIdVersions packInfos)
 		{
-			if (packInfos == null)
+			if (packInfos == null || packInfos.Count == 0)
 			{
 				WriteUnsignedVarInt(0);
 				return;
@@ -1795,7 +2428,7 @@ namespace MiNET.Net
 			{
 				Write(info.Id);
 				Write(info.Version);
-				Write(info.Unknown);
+				Write(info.SubPackName);
 			}
 		}
 
@@ -1808,12 +2441,12 @@ namespace MiNET.Net
 			{
 				var id = ReadString();
 				var version = ReadString();
-				var unknown = ReadString();
+				var subPackName = ReadString();
 				var info = new PackIdVersion
 				{
 					Id = id,
 					Version = version,
-					Unknown = unknown
+					SubPackName = subPackName
 				};
 				packInfos.Add(info);
 			}
@@ -1853,6 +2486,7 @@ namespace MiNET.Net
 		public void Write(Skin skin)
 		{
 			Write(skin.SkinId);
+			Write(skin.PlayFabId);
 			Write(skin.ResourcePatch);
 			Write(skin.Width);
 			Write(skin.Height);
@@ -1868,6 +2502,7 @@ namespace MiNET.Net
 					WriteByteArray(animation.Image);
 					Write(animation.Type);
 					Write(animation.FrameCount);
+					Write(animation.Expression);
 				}
 			}
 			else
@@ -1879,10 +2514,9 @@ namespace MiNET.Net
 			Write(skin.Cape.ImageHeight);
 			WriteByteArray(skin.Cape.Data);
 			Write(skin.GeometryData);
+			Write(skin.GeometryDataVersion);
 			Write(skin.AnimationData);
-			Write(skin.IsPremiumSkin);
-			Write(skin.IsPersonaSkin);
-			Write(skin.Cape.OnClassicSkin);
+
 			Write(skin.Cape.Id);
 			Write(skin.SkinId + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()); // some unique skin id
 			Write(skin.ArmSize);
@@ -1906,6 +2540,11 @@ namespace MiNET.Net
 					Write(color);
 				}
 			}
+			
+			Write(skin.IsPremiumSkin);
+			Write(skin.IsPersonaSkin);
+			Write(skin.Cape.OnClassicSkin);
+			Write(skin.IsPrimaryUser);
 		}
 
 		public Skin ReadSkin()
@@ -1913,6 +2552,7 @@ namespace MiNET.Net
 			Skin skin = new Skin();
 
 			skin.SkinId = ReadString();
+			skin.PlayFabId = ReadString();
 			skin.ResourcePatch = ReadString();
 			skin.Width = ReadInt();
 			skin.Height = ReadInt();
@@ -1929,6 +2569,7 @@ namespace MiNET.Net
 						Image = ReadByteArray(false),
 						Type = ReadInt(),
 						FrameCount = ReadFloat(),
+						Expression = ReadInt() 
 					}
 				);
 			}
@@ -1937,10 +2578,9 @@ namespace MiNET.Net
 			skin.Cape.ImageHeight = ReadInt();
 			skin.Cape.Data = ReadByteArray(false);
 			skin.GeometryData = ReadString();
+			skin.GeometryDataVersion = ReadString();
 			skin.AnimationData = ReadString();
-			skin.IsPremiumSkin = ReadBool();
-			skin.IsPersonaSkin = ReadBool();
-			skin.Cape.OnClassicSkin = ReadBool();
+
 			skin.Cape.Id = ReadString();
 			ReadString(); // fullSkinId
 			skin.ArmSize = ReadString();
@@ -1969,7 +2609,11 @@ namespace MiNET.Net
 				}
 				skin.SkinPieces.Add(piece);
 			}
-
+			
+			skin.IsPremiumSkin = ReadBool();
+			skin.IsPersonaSkin = ReadBool();
+			skin.Cape.OnClassicSkin = ReadBool();
+			skin.IsPrimaryUser = ReadBool();
 			//Log.Debug($"SkinId={skin.SkinId}");
 			//Log.Debug($"SkinData lenght={skin.Data.Length}");
 			//Log.Debug($"CapeData lenght={skin.Cape.Data.Length}");
@@ -2096,19 +2740,19 @@ namespace MiNET.Net
 					{
 						var recipe = new ShapelessRecipe();
 						ReadString(); // some unique id
-						int ingrediensCount = ReadVarInt(); // 
+						var ingrediensCount = ReadUnsignedVarInt(); // 
 						for (int j = 0; j < ingrediensCount; j++)
 						{
 							recipe.Input.Add(ReadRecipeIngredient());
 						}
-						int resultCount = ReadVarInt(); // 1?
+						var resultCount = ReadUnsignedVarInt(); // 1?
 						for (int j = 0; j < resultCount; j++)
 						{
-							recipe.Result.Add(ReadItem());
+							recipe.Result.Add(ReadItem(false));
 						}
 						recipe.Id = ReadUUID(); // Id
 						recipe.Block = ReadString(); // block?
-						ReadSignedVarInt(); // priority
+						ReadVarInt(); // priority
 						recipe.UniqueId = ReadVarInt(); // unique id
 						recipes.Add(recipe);
 						//Log.Error("Read shapeless recipe");
@@ -2120,7 +2764,8 @@ namespace MiNET.Net
 						int width = ReadSignedVarInt(); // Width
 						int height = ReadSignedVarInt(); // Height
 						var recipe = new ShapedRecipe(width, height);
-						if (width > 3 || height > 3) throw new Exception("Wrong number of ingredience. Width=" + width + ", height=" + height);
+						if (width > 3 || height > 3) 
+							throw new Exception("Wrong number of ingredients, Width=" + width + ", height=" + height);
 						for (int w = 0; w < width; w++)
 						{
 							for (int h = 0; h < height; h++)
@@ -2129,14 +2774,14 @@ namespace MiNET.Net
 							}
 						}
 
-						int resultCount = ReadVarInt(); // 1?
+						var resultCount = ReadUnsignedVarInt(); // 1?
 						for (int j = 0; j < resultCount; j++)
 						{
-							recipe.Result.Add(ReadItem());
+							recipe.Result.Add(ReadItem(false));
 						}
 						recipe.Id = ReadUUID(); // Id
 						recipe.Block = ReadString(); // block?
-						ReadSignedVarInt(); // priority
+						ReadVarInt(); // priority
 						recipe.UniqueId = ReadVarInt(); // unique id
 						recipes.Add(recipe);
 						//Log.Error("Read shaped recipe");
@@ -2145,8 +2790,8 @@ namespace MiNET.Net
 					case Furnace:
 					{
 						var recipe = new SmeltingRecipe();
-						short id = (short) ReadSignedVarInt(); // input (with metadata) 
-						Item result = ReadItem(); // Result
+						short id = (short) ReadVarInt(); // input (with metadata) 
+						Item result = ReadItem(false); // Result
 						recipe.Block = ReadString(); // block?
 						recipe.Input = ItemFactory.GetItem(id, 0);
 						recipe.Result = result;
@@ -2159,9 +2804,9 @@ namespace MiNET.Net
 					{
 						//const ENTRY_FURNACE_DATA = 3;
 						var recipe = new SmeltingRecipe();
-						short id = (short) ReadSignedVarInt(); // input (with metadata) 
-						short meta = (short) ReadSignedVarInt(); // input (with metadata) 
-						Item result = ReadItem(); // Result
+						short id = (short) ReadVarInt(); // input (with metadata) 
+						short meta = (short) ReadVarInt(); // input (with metadata) 
+						Item result = ReadItem(false); // Result
 						recipe.Block = ReadString(); // block?
 						recipe.Input = ItemFactory.GetItem(id, meta);
 						recipe.Result = result;
@@ -2192,7 +2837,7 @@ namespace MiNET.Net
 						int resultCount = ReadVarInt(); // 1?
 						for (int j = 0; j < resultCount; j++)
 						{
-							recipe.Result.Add(ReadItem());
+							recipe.Result.Add(ReadItem(false));
 						}
 						recipe.Id = ReadUUID(); // Id
 						recipe.Block = ReadString(); // block?
@@ -2208,7 +2853,7 @@ namespace MiNET.Net
 						int width = ReadSignedVarInt(); // Width
 						int height = ReadSignedVarInt(); // Height
 						var recipe = new ShapedRecipe(width, height);
-						if (width > 3 || height > 3) throw new Exception("Wrong number of ingredience. Width=" + width + ", height=" + height);
+						if (width > 3 || height > 3) throw new Exception("Wrong number of ingredients. Width=" + width + ", height=" + height);
 						for (int w = 0; w < width; w++)
 						{
 							for (int h = 0; h < height; h++)
@@ -2220,7 +2865,7 @@ namespace MiNET.Net
 						int resultCount = ReadVarInt(); // 1?
 						for (int j = 0; j < resultCount; j++)
 						{
-							recipe.Result.Add(ReadItem());
+							recipe.Result.Add(ReadItem(false));
 						}
 						recipe.Id = ReadUUID(); // Id
 						recipe.Block = ReadString(); // block?
@@ -2246,25 +2891,25 @@ namespace MiNET.Net
 		{
 			if (stack == null || stack.Id == 0)
 			{
-				WriteSignedVarInt(0);
+				WriteVarInt(0);
 				return;
 			}
 
-			WriteSignedVarInt(stack.Id);
-			WriteSignedVarInt(stack.Metadata);
-			WriteSignedVarInt(stack.Count);
+			WriteVarInt(stack.Id);
+			WriteVarInt(stack.Metadata);
+			WriteVarInt(stack.Count);
 		}
 
 		public Item ReadRecipeIngredient()
 		{
-			short id = (short) ReadSignedVarInt();
+			short id = (short) ReadVarInt();
 			if (id == 0)
 			{
 				return new ItemAir();
 			}
 
-			short metadata = (short) ReadSignedVarInt();
-			int count = ReadSignedVarInt();
+			short metadata = (short) ReadVarInt();
+			int count = ReadVarInt();
 
 			return ItemFactory.GetItem(id, metadata, count);
 		}
@@ -2285,6 +2930,53 @@ namespace MiNET.Net
 				recipe.Input = ReadVarInt();
 				recipe.Ingredient = ReadVarInt();
 				recipe.Output = ReadVarInt();
+
+				recipes[i] = recipe;
+			}
+
+			return recipes;
+		}
+
+		public void Write(MaterialReducerRecipe[] reducerRecipes)
+		{
+			WriteUnsignedVarInt((uint) reducerRecipes.Length);
+
+			for (int i = 0; i < reducerRecipes.Length; i++)
+			{
+				var recipe = reducerRecipes[i];
+				WriteVarInt((recipe.Input << 16) | recipe.InputMeta);
+				WriteUnsignedVarInt((uint) recipe.Output.Length);
+
+				foreach (var output in recipe.Output)
+				{
+					WriteVarInt(output.ItemId);
+					WriteVarInt(output.ItemCount);
+				}
+			}
+		} 
+
+		public MaterialReducerRecipe[] ReadMaterialReducerRecipes()
+		{
+			int count = (int) ReadUnsignedVarInt();
+			var recipes = new MaterialReducerRecipe[count];
+			for (int i = 0; i < recipes.Length; i++)
+			{
+				var inputIdAndMeta = ReadVarInt();
+				var inputId = inputIdAndMeta >> 16;
+				var inputMeta = inputIdAndMeta & 0x7fff;
+
+				var outputCount = (int) ReadUnsignedVarInt();
+				MaterialReducerRecipe.MaterialReducerRecipeOutput[] outputs = new MaterialReducerRecipe.MaterialReducerRecipeOutput[outputCount];
+
+				for (int o = 0; o < outputs.Length; o++)
+				{
+					var itemId = ReadVarInt();
+					var itemCount = ReadVarInt();
+
+					outputs[o] = new MaterialReducerRecipe.MaterialReducerRecipeOutput(itemId, itemCount);
+				}
+				
+				var recipe = new MaterialReducerRecipe(inputId, inputMeta, outputs);
 
 				recipes[i] = recipe;
 			}
@@ -2663,7 +3355,222 @@ namespace MiNET.Net
 			return list;
 		}
 
+		public Experiments ReadExperiments()
+		{
+			Experiments experiments = new Experiments();
+			var count = ReadInt();
 
+			for (int i = 0; i < count; i++)
+			{
+				var experimentName = ReadString();
+				var enabled = ReadBool();
+				experiments.Add(new Experiments.Experiment(experimentName, enabled));
+			}
+			return experiments;
+		}
+
+		public void Write(Experiments experiments)
+		{
+			if (experiments == null)
+			{
+				Write(0);
+				return;
+			}
+			Write(experiments.Count);
+
+			foreach (var experiment in experiments)
+			{
+				Write(experiment.Name);
+				Write(experiment.Enabled);
+			}
+		}
+
+		public void Write(EducationUriResource resource)
+		{
+			Write(resource.ButtonName);
+			Write(resource.LinkUri);
+		}
+		
+		public EducationUriResource ReadEducationUriResource()
+		{
+			string name = ReadString();
+			var uri = ReadString();
+
+			return new EducationUriResource(name, uri);
+		}
+
+		public void Write(UpdateSubChunkBlocksPacketEntry entry)
+		{
+			Write(entry.Coordinates);
+			WriteUnsignedVarInt(entry.BlockRuntimeId);
+			WriteUnsignedVarInt(entry.Flags);
+			WriteUnsignedVarLong(entry.SyncedUpdatedEntityUniqueId);
+			WriteUnsignedVarInt(entry.SyncedUpdateType);
+		}
+
+		public UpdateSubChunkBlocksPacketEntry ReadUpdateSubChunkBlocksPacketEntry()
+		{
+			var entry = new UpdateSubChunkBlocksPacketEntry();
+			entry.Coordinates = ReadBlockCoordinates();
+			entry.BlockRuntimeId = ReadUnsignedVarInt();
+			entry.Flags = ReadUnsignedVarInt();
+			entry.SyncedUpdatedEntityUniqueId = ReadUnsignedVarLong();
+			entry.SyncedUpdateType = ReadUnsignedVarInt();
+
+			return entry;
+		}
+
+		public void Write(UpdateSubChunkBlocksPacketEntry[] entries)
+		{
+			WriteUnsignedVarInt((uint) entries.Length);
+			foreach(var entry in entries)
+				Write(entry);
+		}
+
+		public UpdateSubChunkBlocksPacketEntry[] ReadUpdateSubChunkBlocksPacketEntrys()
+		{
+			var count = ReadUnsignedVarInt();
+			UpdateSubChunkBlocksPacketEntry[] entries = new UpdateSubChunkBlocksPacketEntry[(int) count];
+
+			for (int i = 0; i < entries.Length; i++)
+			{
+				entries[i] = ReadUpdateSubChunkBlocksPacketEntry();
+			}
+
+			return entries;
+		}
+
+		public void Write(HeightMapData data)
+		{
+			if (data == null)
+			{
+				Write((byte) SubChunkPacketHeightMapType.NoData);
+
+				return;
+			}
+
+			if (data.IsAllTooHigh)
+			{
+				Write((byte) SubChunkPacketHeightMapType.AllTooHigh);
+
+				return;
+			}
+
+			if (data.IsAllTooLow)
+			{
+				Write((byte) SubChunkPacketHeightMapType.AllTooLow);
+
+				return;
+			}
+			
+			Write((byte) SubChunkPacketHeightMapType.Data);
+
+			for (int i = 0; i < data.Heights.Length; i++)
+			{
+				Write((byte) data.Heights[i]);
+			}
+		}
+
+		public HeightMapData ReadHeightMapData()
+		{
+			SubChunkPacketHeightMapType type = (SubChunkPacketHeightMapType) ReadByte();
+
+			if (type != SubChunkPacketHeightMapType.Data)
+				return null;
+
+			short[] heights = new short[256];
+
+			for (int i = 0; i < heights.Length; i++)
+			{
+				heights[i] = (short) ReadByte();
+			}
+
+			return new HeightMapData(heights);
+		}
+
+		public void Write(SubChunkPositionOffset offset)
+		{
+			Write(offset.XOffset);
+			Write(offset.YOffset);
+			Write(offset.ZOffset);
+		}
+
+		public SubChunkPositionOffset ReadSubChunkPositionOffset()
+		{
+			SubChunkPositionOffset result = new SubChunkPositionOffset();
+			result.XOffset = ReadSByte();
+			result.YOffset = ReadSByte();
+			result.ZOffset = ReadSByte();
+			return result;
+		}
+
+		public void Write(SubChunkPositionOffset[] offsets)
+		{
+			Write(offsets.Length);
+
+			foreach (var offset in offsets)
+			{
+				Write(offset);
+			}
+		}
+		
+		public SubChunkPositionOffset[] ReadSubChunkPositionOffsets()
+		{
+			var count = ReadInt();
+			SubChunkPositionOffset[] offsets = new SubChunkPositionOffset[count];
+
+			for (int i = 0; i < offsets.Length; i++)
+			{
+				offsets[i] = ReadSubChunkPositionOffset();
+			}
+
+			return offsets;
+		}
+
+		public DimensionData ReadDimensionData()
+		{
+			DimensionData data = new DimensionData();
+			data.MaxHeight = ReadVarInt();
+			data.MinHeight = ReadVarInt();
+			data.Generator = ReadVarInt();
+
+			return data;
+		}
+
+		public void Write(DimensionData data)
+		{
+			WriteVarInt(data.MaxHeight);
+			WriteVarInt(data.MinHeight);
+			WriteVarInt(data.Generator);
+		}
+		
+		public void Write(DimensionDefinitions definitions)
+		{
+			WriteUnsignedVarInt((uint) definitions.Count);
+
+			foreach (var def in definitions)
+			{
+				Write(def.Key);
+				Write(def.Value);
+			}
+		}
+		
+		public DimensionDefinitions ReadDimensionDefinitions()
+		{
+			DimensionDefinitions definitions = new DimensionDefinitions();
+			
+			var count = ReadUnsignedVarInt();
+			for (int i = 0; i < count; i++)
+			{
+				var stringId = ReadString();
+				var data = ReadDimensionData();
+
+				definitions.TryAdd(stringId, data);
+			}
+
+			return definitions;
+		}
+		
 		public bool CanRead()
 		{
 			return _reader.Position < _reader.Length;

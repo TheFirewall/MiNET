@@ -32,6 +32,7 @@ using log4net;
 using MiNET.Blocks;
 using MiNET.Plugins;
 using MiNET.Utils;
+using MiNET.Utils.Vectors;
 
 [assembly: InternalsVisibleTo("MiNET.BuilderBase.Tests")]
 
@@ -103,19 +104,24 @@ namespace MiNET.BuilderBase.Patterns
 			Block block;
 			if (blockEntry.HasMetadata)
 			{
+				Log.Debug($"Using block from metadata");
 				block = BlockFactory.GetBlockById(blockEntry.Id, blockEntry.Metadata);
 			}
 			else
 			{
+				Log.Debug($"Using block with blockstate");
 				block = BlockFactory.GetBlockById(blockEntry.Id);
 				if (blockEntry.HasBlockStates)
 				{
+					Log.Debug($"Has block state, setting block");
 					BlockStateContainer currentStates = block.GetState();
 					foreach (BlockStateEntry stateEntry in blockEntry.BlockStates)
 					{
+						Log.Debug($"Checking block state for block {stateEntry.Name}");
 						IBlockState state = currentStates.States.FirstOrDefault(s => s.Name == stateEntry.Name);
+						Log.Debug($"Found state for block {state?.Name}");
 						if(state == null) continue;
-						
+
 						switch (state)
 						{
 							case BlockStateByte s:
